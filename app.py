@@ -1,20 +1,36 @@
 import pandas as pd
 import streamlit as st
 
+# 设置session_state存储状态
+if 'conference_file' not in st.session_state:
+    st.session_state.conference_file = None
+
 # 上传会议文件
 conference_file = st.file_uploader("上传会议文件", type=["xlsx"])
 
+# 如果有文件上传，读取文件并存储
 if conference_file is not None:
     try:
-        # 读取文件并存入 session_state
+        # 读取 Excel 文件并存入 session_state
         st.session_state.conference_file = pd.read_excel(conference_file)
         st.success("会议文件上传成功！")
     except Exception as e:
         st.error(f"文件读取出错: {e}")
-        st.stop()
+        st.session_state.conference_file = None
+
+# 如果文件已上传，显示文件内容
+if st.session_state.conference_file is not None:
+    st.write("会议文件内容预览：")
+    st.dataframe(st.session_state.conference_file.head())
+
+# 显示清除文件按钮
+if st.session_state.conference_file is not None:
+    if st.button("清除会议文件"):
+        st.session_state.conference_file = None
+        st.experimental_rerun()
 
 # 检查是否存在文件
-if 'conference_file' not in st.session_state:
+if st.session_state.conference_file is None:
     st.error("❌ 请先上传会议文件")
     st.stop()
 
@@ -44,3 +60,5 @@ elif '会议名' in columns:
 
 # 显示会议名称，确认字段是否加载成功
 st.write("会议名称字段内容：", conference_name.head())
+
+# 其他处理逻辑...
