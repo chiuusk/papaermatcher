@@ -1,76 +1,61 @@
 import pandas as pd
 import streamlit as st
 
-# 初始化 session_state 用于存储上传的文件
-if 'conference_file' not in st.session_state:
-    st.session_state.conference_file = None
+# 页面设置
+st.set_page_config(page_title="论文会议匹配助手", layout="wide")
+st.title("📄 智能论文会议匹配")
 
-if 'paper_file' not in st.session_state:
-    st.session_state.paper_file = None
+# 初始化 session_state
+if 'conference_df' not in st.session_state:
+    st.session_state.conference_df = None
 
-# 上传会议文件，指定唯一key
-conference_file = st.file_uploader("上传会议文件", type=["xlsx"], key="conference_uploader")
+if 'paper_info' not in st.session_state:
+    st.session_state.paper_info = None
 
-# 上传论文文件，指定唯一key
-paper_file = st.file_uploader("上传论文文件", type=["pdf", "docx"], key="paper_uploader")
+# 创建左右列
+left_col, right_col = st.columns(2)
 
-# 处理会议文件
-if conference_file is not None:
-    try:
-        # 读取 Excel 文件并存入 session_state
-        st.session_state.conference_file = pd.read_excel(conference_file)
-        st.success("会议文件上传成功！")
-    except Exception as e:
-        st.error(f"会议文件读取出错: {e}")
-        st.session_state.conference_file = None
+# 左侧：上传会议文件
+with left_col:
+    st.subheader("📅 上传会议文件")
+    conference_file = st.file_uploader("上传Excel格式的会议列表", type=["xlsx"], key="conf_upload")
+    if conference_file:
+        try:
+            df = pd.read_excel(conference_file)
+            df.columns = df.columns.str.strip()
+            # 自动统一列名
+            if '会议名称' in df.columns:
+                df.rename(columns={'会议名称': '会议名'}, inplace=True)
+            if '会议名' not in df.columns:
+                st.error("❌ 文件中缺少“会议名”字段！请检查后重新上传。")
+            else:
+                st.session_state.conference_df = df
+                st.success("✅ 会议文件读取成功！")
+        except Exception as e:
+            st.error(f"会议文件读取失败：{e}")
 
-# 处理论文文件
-if paper_file is not None:
-    try:
-        # 论文文件处理逻辑（仅显示文件名）
-        st.session_state.paper_file = paper_file
-        st.success("论文文件上传成功！")
-    except Exception as e:
-        st.error(f"论文文件读取出错: {e}")
-        st.session_state.paper_file = None
+# 右侧：上传论文信息（仅提取文本）
+with right_col:
+    st.subheader("📝 上传论文文件")
+    paper_file = st.file_uploader("上传PDF或DOCX论文文件", type=["pdf", "docx"], key="paper_upload")
+    if paper_file:
+        # 暂时用文件名模拟论文标题
+        st.session_state.paper_info = {"标题": paper_file.name}
+        st.success("✅ 论文文件上传成功！")
 
-# 显示会议文件和论文文件内容（仅预览前几行）
-if st.session_state.conference_file is not None:
-    st.write("会议文件内容预览：")
-    st.dataframe(st.session_state.conference_file.head())
+# 只有在两个文件都上传成功后才进行匹配
+if st.session_state.conference_df is not None and st.session_state.paper_info is not None:
+    st.divider()
+    st.subheader("📊 匹配推荐结果")
 
-if st.session_state.paper_file is not None:
-    st.write(f"论文文件：{st.session_state.paper_file.name}")
+    # 简化模拟匹配逻辑：假设会议方向字段叫“方向”，我们模拟判断
+    paper_title = st.session_state.paper_info["标题"]
+    paper_keywords = paper_title.lower().split()
 
-# 清除会议文件和论文文件按钮
-if st.session_state.conference_file is not None:
-    if st.button("清除会议文件"):
-        st.session_state.conference_file = None
-        st.experimental_rerun()
+    # 获取会议表
+    df = st.session_state.conference_df.copy()
 
-if st.session_state.paper_file is not None:
-    if st.button("清除论文文件"):
-        st.session_state.paper_file = None
-        st.experimental_rerun()
-
-# 确保会议文件已上传且包含必要字段
-if st.session_state.conference_file is None:
-    st.error("❌ 请先上传会议文件")
-    st.stop()
-
-# 获取实际列名
-columns = st.session_state.conference_file.columns.str.strip()
-
-# 检查是否存在 '会议名' 字段
-if '会议名' not in columns:
-    st.error("❌ 缺少必要字段：会议名")
-    st.stop()
-
-# 显示会议名称字段的内容
-conference_name = st.session_state.conference_file['会议名']
-st.write("会议名称字段内容：", conference_name.head())
-
-# 进一步处理论文文件（具体实现根据需求进行）
-if st.session_state.paper_file is not None:
-    # 处理论文文件的逻辑
-    pass  # 根据需要提取论文的内容
+    # 简单关键词匹配逻辑（示意）
+    matched_rows = []
+    for idx, row in df.iterrows():
+        row_text = " "._
