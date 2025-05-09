@@ -1,72 +1,99 @@
 import streamlit as st
-from sentence_transformers import SentenceTransformer, util
+import pandas as pd
+import numpy as np
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
 from PyPDF2 import PdfReader
-import tempfile
-import os
+import time
 
-# 初始化模型
+# Load model for matching
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
-# 学科领域库（可根据实际需要扩展）
-academic_fields = [
-    "计算机科学", "电子工程", "生物医学", "化学", "物理", "材料科学", 
-    "医学", "人工智能", "数据科学", "社会学", "心理学", "环境科学", 
-    "经济学", "教育学", "社会学", "地理学", "法学"
-]
+def analyze_subject_direction(text):
+    # Placeholder function for analyzing paper's research direction
+    # You can replace this with an actual subject classification model or logic
+    if "Reinforcement Learning" in text:
+        return {
+            "Machine Learning": 60,
+            "Control Engineering": 30,
+            "Electrical Engineering": 10
+        }
+    # Add more logic for other subject directions
+    return {
+        "Other": 100
+    }
 
-# 提取论文文本
-def extract_paper_text(pdf_file):
-    """从PDF文件中提取文本"""
-    reader = PdfReader(pdf_file)
+def extract_text_from_pdf(file):
+    pdf_reader = PdfReader(file)
     text = ""
-    for page in reader.pages:
-        text += page.extract_text() + " "
-    return text.strip()
+    for page in pdf_reader.pages:
+        text += page.extract_text()
+    return text
 
-# 提取学科方向
-def extract_paper_research_field(text):
-    """
-    从论文文本中提取研究方向的简单方法：可以根据文本嵌入计算与已知学科方向的相似度
-    """
-    # 用模型计算论文文本的嵌入向量
-    paper_embedding = model.encode(text, convert_to_tensor=True)
-
-    # 创建学科方向的嵌入向量
-    field_embeddings = model.encode(academic_fields, convert_to_tensor=True)
-
-    # 计算与每个学科方向的相似度
-    similarities = util.cos_sim(paper_embedding, field_embeddings).cpu().numpy().flatten()
-
-    # 按相似度排序并返回前三个学科方向及其相似度
-    top_indexes = similarities.argsort()[::-1][:3]
-    result = [(academic_fields[idx], similarities[idx]) for idx in top_indexes]
-    total_similarity = sum([similarity for _, similarity in result])
+def match_paper_to_conference(paper_text, conferences_df):
+    paper_direction = analyze_subject_direction(paper_text)
+    paper_direction_str = ", ".join([f"{k}: {v}%" for k, v in paper_direction.items()])
     
-    # 返回学科方向及其对应的百分比
-    result_with_percentage = [(field, round(similarity / total_similarity * 100, 2)) for field, similarity in result]
-    return result_with_percentage
+    st.write(f"论文的学科方向分析结果：{paper_direction_str}")
+    
+    # Using the title, abstract, and keywords of the paper to calculate similarity
+    paper_embedding = model.encode([paper_text])
+    conference_names = conferences_df['会议名'] + " " + conferences_df['会议系列名']
+    conference_embeddings = model.encode(conference_names.tolist())
+    
+    similarities = cosine_similarity(paper_embedding, conference_embeddings)
+    matched_indices = np.argsort(similarities[0])[::-1][:3]  # Get top 3 matching conferences
+    
+    results = []
+    for idx in matched_indices:
+        conf_row = conferences_df.iloc[idx]
+        results.append({
+            "会议名称": conf_row['会议名'],
+            "会议系列名": conf_row['会议系列名'],
+            "官网链接": conf_row['官网链接'],
+            "截稿时间": conf_row['截稿时间'],
+            "匹配理由": f"该会议与论文的学科方向（{paper_direction_str}）相关，适合该论文的研究方向。"
+        })
+    
+    return results
 
-# Streamlit 页面设置
-st.set_page_config(layout="wide")
-st.title("📄 论文分析工具")
+# Streamlit UI
+st.title('论文与会议匹配工具')
 
-# 上传论文文件
-uploaded_file = st.file_uploader("上传论文 PDF 文件", type=["pdf"])
+# 上传会议文件（只上传一次）
+conference_file = st.file_uploader("上传会议文件", type=["xlsx"], key="conference_uploader")
 
-if uploaded_file:
-    st.success("✅ 论文文件上传成功！正在提取信息...")
+if conference_file:
+    # Read the uploaded conference file
+    conferences_df = pd.read_excel(conference_file)
+    st.session_state.conferences_df = conferences_df
+    st.write("会议文件已上传。")
 
-    # 提取论文文本
-    paper_text = extract_paper_text(uploaded_file)
+# 上传论文文件（允许多次上传）
+paper_file = st.file_uploader("上传论文文件", type=["pdf"], key="paper_uploader")
 
-    # 进行学科方向分析
-    paper_fields = extract_paper_research_field(paper_text)
+if paper_file:
+    paper_text = extract_text_from_pdf(paper_file)
+    if 'conferences_df' in st.session_state:
+        # Perform matching only if conference file has been uploaded
+        with st.spinner("正在进行论文与会议匹配..."):
+            results = match_paper_to_conference(paper_text, st.session_state.conferences_df)
+            time.sleep(2)  # Simulate processing time
+        st.write("匹配结果：")
+        for result in results:
+            st.write(f"**会议名称**: {result['会议名称']}")
+            st.write(f"**会议系列名**: {result['会议系列名']}")
+            st.write(f"**官网链接**: {result['官网链接']}")
+            st.write(f"**截稿时间**: {result['截稿时间']}")
+            st.write(f"**匹配理由**: {result['匹配理由']}")
+    else:
+        st.warning("请先上传会议文件。")
 
-    # 显示论文的学科方向及其占比
-    st.subheader("📚 论文学科专业方向分析")
-    st.write("### 论文涉及的学科方向：")
-    for field, percentage in paper_fields:
-        st.write(f"**{field}**: {percentage}%")
+# 清除文件按钮
+if st.button("清除会议文件"):
+    st.session_state.conferences_df = None
+    st.experimental_rerun()
 
-    st.write("### 请确认论文涉及的学科方向及占比。")
-    st.write("如果有误，请修改或调整相关参数。")
+if st.button("清除论文文件"):
+    st.session_state.paper_uploader = None
+    st.experimental_rerun()
