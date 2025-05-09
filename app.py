@@ -1,166 +1,120 @@
 import streamlit as st
-import pandas as pd
 import pdfplumber
 import docx
-from datetime import datetime
+import pandas as pd
+import datetime
 from sentence_transformers import SentenceTransformer, util
 import os
 
-st.set_page_config(page_title="论文匹配推荐系统", layout="wide")
-st.title("📄 论文智能匹配推荐会议")
+# 初始化模型
+model = SentenceTransformer('all-MiniLM-L6-v2')
 
-model = SentenceTransformer("all-MiniLM-L6-v2")
+st.title("📄 智能论文匹配推荐会议工具")
 
-# 文件状态初始化
-if "paper_file" not in st.session_state:
-    st.session_state.paper_file = None
-if "conference_file" not in st.session_state:
+# Session state 存储上传文件
+if 'conference_file' not in st.session_state:
     st.session_state.conference_file = None
+if 'paper_file' not in st.session_state:
+    st.session_state.paper_file = None
 
+# 上传会议文件（Excel）
+st.header("① 上传会议文件（Excel）")
+conference_uploaded = st.file_uploader("包含字段：会议名称、会议方向、会议主题方向、细分关键词、动态出版标记、截稿时间、官网链接", type=["xlsx"], key="conf_upload")
 
-# -------------------- 文件上传区块 --------------------
+if st.button("清除会议文件"):
+    st.session_state.conference_file = None
+    conference_uploaded = None
 
-st.header("1️⃣ 上传会议文件（Excel）")
-conf_col1, conf_col2 = st.columns([4, 1])
-
-with conf_col1:
-    uploaded_conf = st.file_uploader(
-        "上传包含会议信息的 Excel 文件（会议名称、方向、主题、细分关键词、官网链接、截稿时间...）",
-        type=["xlsx"],
-        key="conference_uploader"
-    )
-    if uploaded_conf:
-        st.session_state.conference_file = uploaded_conf
-
-with conf_col2:
-    if st.button("🗑 清除会议文件"):
-        st.session_state.conference_file = None
-
-
-st.divider()
-
-st.header("2️⃣ 上传论文文件（PDF / Word）")
-paper_col1, paper_col2 = st.columns([4, 1])
-
-with paper_col1:
-    uploaded_paper = st.file_uploader(
-        "上传需要匹配的论文文件",
-        type=["pdf", "docx"],
-        key="paper_uploader"
-    )
-    if uploaded_paper:
-        st.session_state.paper_file = uploaded_paper
-
-with paper_col2:
-    if st.button("🗑 清除论文文件"):
-        st.session_state.paper_file = None
-
-st.divider()
-
-# -------------------- 工具函数 --------------------
-
-def extract_text(file):
-    if file.name.endswith(".pdf"):
-        with pdfplumber.open(file) as pdf:
-            text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-    elif file.name.endswith(".docx"):
-        doc = docx.Document(file)
-        text = "\n".join(paragraph.text for paragraph in doc.paragraphs)
-    else:
-        return ""
-    return text
-
-
-def extract_sections(text):
-    # 简单分段抽取 title, abstract, keywords, conclusion（可优化）
-    sections = {
-        "title": text.split("\n")[0],
-        "abstract": "",
-        "keywords": "",
-        "conclusion": "",
-    }
-    lowered = text.lower()
-    if "abstract" in lowered:
-        sections["abstract"] = text[lowered.find("abstract"):lowered.find("introduction") if "introduction" in lowered else 1000]
-    if "keywords" in lowered:
-        start = lowered.find("keywords")
-        end = lowered.find("\n", start + 8)
-        sections["keywords"] = text[start:end].replace("Keywords", "").replace(":", "").strip()
-    if "conclusion" in lowered:
-        start = lowered.find("conclusion")
-        sections["conclusion"] = text[start:start + 800]
-    return sections
-
-
-def compute_similarity(text1, text2):
-    emb1 = model.encode(text1, convert_to_tensor=True)
-    emb2 = model.encode(text2, convert_to_tensor=True)
-    return float(util.cos_sim(emb1, emb2)[0])
-
-
-# -------------------- 匹配逻辑 --------------------
-
-def match_and_display(paper_text, conference_df):
-    sections = extract_sections(paper_text)
-    combined_text = " ".join([sections[k] for k in ["title", "abstract", "keywords", "conclusion"] if sections[k]])
-
-    best_matches = []
-
-    for _, row in conference_df.iterrows():
-        conf_name = row["会议名称"]
-        direction = str(row.get("会议方向", ""))
-        topic = str(row.get("会议主题方向", ""))
-        sub_keywords = str(row.get("细分关键词", ""))
-        deadline = str(row.get("截稿时间", ""))
-        link = row.get("官网链接", "")
-
-        full_conf_info = " ".join([direction, topic, sub_keywords])
-        similarity = compute_similarity(combined_text, full_conf_info)
-
-        # 匹配关键词记录
-        matched_terms = []
-        for word in sub_keywords.split(","):
-            word = word.strip().lower()
-            if word and word in combined_text.lower():
-                matched_terms.append(word)
-
-        try:
-            deadline_date = pd.to_datetime(deadline)
-            days_left = (deadline_date - datetime.now()).days
-        except:
-            days_left = "未知"
-
-        best_matches.append({
-            "会议名称": conf_name,
-            "匹配分数": round(similarity, 3),
-            "匹配关键词": ", ".join(matched_terms) if matched_terms else "无明显关键词匹配",
-            "官网链接": link,
-            "距离截稿时间": f"{days_left} 天" if isinstance(days_left, int) else "无法解析"
-        })
-
-    sorted_matches = sorted(best_matches, key=lambda x: x["匹配分数"], reverse=True)[:2]
-
-    st.subheader("📌 推荐会议")
-    for match in sorted_matches:
-        st.markdown(f"""
-        **会议名称：** {match['会议名称']}  
-        **匹配分数：** {match['匹配分数']}  
-        **关键词匹配：** {match['匹配关键词']}  
-        **官网链接：** [{match['官网链接']}]({match['官网链接']})  
-        **距离截稿时间：** {match['距离截稿时间']}  
-        ---
-        """)
-
-
-# -------------------- 主执行逻辑 --------------------
-
-if st.session_state.paper_file and st.session_state.conference_file:
+if conference_uploaded:
     try:
-        conf_df = pd.read_excel(st.session_state.conference_file)
-        paper_text = extract_text(st.session_state.paper_file)
-        if not paper_text.strip():
-            st.error("论文内容为空，可能提取失败")
-        else:
-            match_and_display(paper_text, conf_df)
+        conf_df = pd.read_excel(conference_uploaded, engine='openpyxl')
+        required_cols = ['会议名称', '会议方向', '会议主题方向', '细分关键词', '动态出版标记', '截稿时间', '官网链接']
+        for col in required_cols:
+            if col not in conf_df.columns:
+                st.error(f"❌ 缺少必要字段：{col}")
+                st.stop()
+        st.success("✅ 会议文件上传成功")
+        st.session_state.conference_file = conf_df
+    except Exception as e:
+        st.error(f"会议文件读取失败：{e}")
+        st.stop()
+
+# 上传论文文件（Word 或 PDF）
+st.header("② 上传论文文件（Word 或 PDF）")
+paper_uploaded = st.file_uploader("上传论文文件（PDF 或 Word）", type=["pdf", "docx"], key="paper_upload")
+
+if st.button("清除论文文件"):
+    st.session_state.paper_file = None
+    paper_uploaded = None
+
+if paper_uploaded:
+    try:
+        def extract_text(file):
+            if file.name.endswith(".pdf"):
+                with pdfplumber.open(file) as pdf:
+                    return "\n".join(page.extract_text() for page in pdf.pages if page.extract_text())
+            elif file.name.endswith(".docx"):
+                doc = docx.Document(file)
+                return "\n".join(p.text for p in doc.paragraphs)
+            else:
+                return ""
+
+        paper_text = extract_text(paper_uploaded)
+
+        # 简单分段提取摘要、关键词、结论
+        def extract_sections(text):
+            text_lower = text.lower()
+            abstract, keywords, conclusion = "", "", ""
+
+            if "abstract" in text_lower:
+                abstract = text[text_lower.find("abstract"):text_lower.find("introduction") if "introduction" in text_lower else 1000]
+            if "keywords" in text_lower:
+                keywords = text[text_lower.find("keywords"):text_lower.find("\n", text_lower.find("keywords") + 8)]
+            if "conclusion" in text_lower:
+                conclusion = text[text_lower.find("conclusion"):text_lower.find("references") if "references" in text_lower else len(text)]
+
+            return abstract + " " + keywords + " " + conclusion
+
+        extracted_text = extract_sections(paper_text)
+        paper_embedding = model.encode(extracted_text, convert_to_tensor=True)
+
+        results = []
+
+        for _, row in st.session_state.conference_file.iterrows():
+            all_text = f"{row['会议方向']} {row['会议主题方向']} {row['细分关键词']}"
+            conf_embedding = model.encode(all_text, convert_to_tensor=True)
+            score = float(util.cos_sim(paper_embedding, conf_embedding)[0])
+
+            # 匹配关键词详细展示
+            matched_keywords = []
+            if isinstance(row['细分关键词'], str):
+                for keyword in row['细分关键词'].split(','):
+                    if keyword.strip().lower() in extracted_text.lower():
+                        matched_keywords.append(keyword.strip())
+
+            try:
+                deadline = pd.to_datetime(row['截稿时间'], errors='coerce')
+                days_left = (deadline - datetime.datetime.now()).days if not pd.isnull(deadline) else "未知"
+            except:
+                days_left = "未知"
+
+            results.append({
+                "会议名称": row['会议名称'],
+                "官网链接": row['官网链接'],
+                "匹配度": score,
+                "匹配关键词": matched_keywords,
+                "距离截稿时间": days_left
+            })
+
+        top_results = sorted(results, key=lambda x: x["匹配度"], reverse=True)[:2]
+
+        st.header("🎯 推荐会议结果")
+        for res in top_results:
+            st.subheader(res["会议名称"])
+            st.markdown(f"🔗 [会议官网链接]({res['官网链接']})")
+            st.markdown(f"📌 匹配理由：**相似度 {res['匹配度']:.2f}**，关键词匹配：{', '.join(res['匹配关键词']) if res['匹配关键词'] else '无关键词匹配'}")
+            st.markdown(f"⏰ 距离截稿时间：{res['距离截稿时间']} 天")
+            st.markdown("---")
+
     except Exception as e:
         st.error(f"处理时出错：{e}")
