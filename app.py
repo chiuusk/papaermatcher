@@ -1,61 +1,70 @@
-import pandas as pd
 import streamlit as st
+import pandas as pd
+from sentence_transformers import SentenceTransformer, util
 
-# 页面设置
-st.set_page_config(page_title="论文会议匹配助手", layout="wide")
-st.title("📄 智能论文会议匹配")
+# 初始化模型
+model = SentenceTransformer("all-MiniLM-L6-v2")
 
-# 初始化 session_state
-if 'conference_df' not in st.session_state:
-    st.session_state.conference_df = None
+st.set_page_config(layout="wide")
+st.title("📄 论文 - 会议匹配工具")
 
-if 'paper_info' not in st.session_state:
-    st.session_state.paper_info = None
-
-# 创建左右列
+# 左右两列布局
 left_col, right_col = st.columns(2)
 
-# 左侧：上传会议文件
+# 上传会议文件
 with left_col:
-    st.subheader("📅 上传会议文件")
-    conference_file = st.file_uploader("上传Excel格式的会议列表", type=["xlsx"], key="conf_upload")
-    if conference_file:
-        try:
-            df = pd.read_excel(conference_file)
-            df.columns = df.columns.str.strip()
-            # 自动统一列名
-            if '会议名称' in df.columns:
-                df.rename(columns={'会议名称': '会议名'}, inplace=True)
-            if '会议名' not in df.columns:
-                st.error("❌ 文件中缺少“会议名”字段！请检查后重新上传。")
-            else:
-                st.session_state.conference_df = df
-                st.success("✅ 会议文件读取成功！")
-        except Exception as e:
-            st.error(f"会议文件读取失败：{e}")
+    st.header("📌 上传会议文件")
+    conference_file = st.file_uploader("上传包含字段：会议名、会议方向、主题方向、细分领域", type=["xlsx"], key="conf_uploader")
 
-# 右侧：上传论文信息（仅提取文本）
+    if st.button("❌ 清除会议文件", key="clear_conf"):
+        st.session_state.conf_uploader = None
+        conference_file = None
+
+# 上传论文文件
 with right_col:
-    st.subheader("📝 上传论文文件")
-    paper_file = st.file_uploader("上传PDF或DOCX论文文件", type=["pdf", "docx"], key="paper_upload")
-    if paper_file:
-        # 暂时用文件名模拟论文标题
-        st.session_state.paper_info = {"标题": paper_file.name}
-        st.success("✅ 论文文件上传成功！")
+    st.header("📄 上传论文文件")
+    paper_file = st.file_uploader("上传包含标题、摘要、关键词字段的文件", type=["xlsx"], key="paper_uploader")
 
-# 只有在两个文件都上传成功后才进行匹配
-if st.session_state.conference_df is not None and st.session_state.paper_info is not None:
-    st.divider()
-    st.subheader("📊 匹配推荐结果")
+    if st.button("❌ 清除论文文件", key="clear_paper"):
+        st.session_state.paper_uploader = None
+        paper_file = None
 
-    # 简化模拟匹配逻辑：假设会议方向字段叫“方向”，我们模拟判断
-    paper_title = st.session_state.paper_info["标题"]
-    paper_keywords = paper_title.lower().split()
+# 显示匹配结果
+if conference_file and paper_file:
+    try:
+        # 读取会议文件
+        df_conf = pd.read_excel(conference_file, engine="openpyxl")
+        df_conf.columns = df_conf.columns.str.strip()
 
-    # 获取会议表
-    df = st.session_state.conference_df.copy()
+        # 字段兼容处理
+        if "会议名称" in df_conf.columns:
+            df_conf.rename(columns={"会议名称": "会议名"}, inplace=True)
 
-    # 简单关键词匹配逻辑（示意）
-    matched_rows = []
-    for idx, row in df.iterrows():
-        row_text = " "._
+        required_conf_cols = {"会议名", "会议方向", "会议主题方向", "会议细分领域"}
+        if not required_conf_cols.issubset(set(df_conf.columns)):
+            st.error(f"❌ 会议文件缺少必要字段：{required_conf_cols - set(df_conf.columns)}")
+        else:
+            # 读取论文文件
+            df_paper = pd.read_excel(paper_file, engine="openpyxl")
+            df_paper.columns = df_paper.columns.str.strip()
+
+            required_paper_cols = {"标题", "摘要", "关键词"}
+            if not required_paper_cols.issubset(set(df_paper.columns)):
+                st.error(f"❌ 论文文件缺少必要字段：{required_paper_cols - set(df_paper.columns)}")
+            else:
+                st.success("✅ 文件读取成功，正在匹配...")
+
+                paper_texts = df_paper["标题"] + " " + df_paper["摘要"] + " " + df_paper["关键词"]
+                paper_embeddings = model.encode(paper_texts.tolist(), convert_to_tensor=True)
+
+                conf_texts = df_conf["会议方向"].astype(str) + " " + df_conf["会议主题方向"].astype(str) + " " + df_conf["会议细分领域"].astype(str)
+                conf_embeddings = model.encode(conf_texts.tolist(), convert_to_tensor=True)
+
+                results = []
+                for i, paper_emb in enumerate(paper_embeddings):
+                    sims = util.cos_sim(paper_emb, conf_embeddings)[0]
+                    best_idx = sims.argmax().item()
+                    best_score = sims[best_idx].item()
+                    best_row = df_conf.iloc[best_idx]
+                    results.append({
+                        "论文标题": df_paper.loc[i, "标题"],
