@@ -39,7 +39,7 @@ with col1:
                 rename_map["会议名称"] = "会议名"
             df.rename(columns=rename_map, inplace=True)
 
-            required_columns = ["会议名", "会议方向", "会议主题方向", "细分关键词", "会议系列名", "官网链接", "动态出版标记", "截稿日期"]
+            required_columns = ["会议名", "会议方向", "会议主题方向", "细分关键词", "会议系列名", "官网链接", "动态出版标记", "截稿时间"]
             missing = [col for col in required_columns if col not in df.columns]
             if missing:
                 st.error(f"❌ 缺少必要字段：{ ' / '.join(missing) }")
@@ -78,7 +78,7 @@ with col2:
 # 执行匹配
 if st.session_state.conference_file is not None and st.session_state.paper_file is not None:
     st.divider()
-    st.subheader("📊 匹配结果")
+    st.subheader("📊 匭配结果")
 
     paper_embedding = model.encode(st.session_state.paper_file, convert_to_tensor=True)
     results = []
@@ -89,12 +89,15 @@ if st.session_state.conference_file is not None and st.session_state.paper_file 
         row_embedding = model.encode(row_text, convert_to_tensor=True)
         similarity = util.cos_sim(paper_embedding, row_embedding).item()
         
-        # 计算截稿日期
-        if pd.notna(row["截稿日期"]):
-            deadline = datetime.strptime(str(row["截稿日期"]), "%Y-%m-%d")
-            days_left = (deadline - datetime.now()).days
+        # 计算截稿时间
+        if pd.notna(row.get("截稿时间", None)):
+            try:
+                deadline = datetime.strptime(str(row["截稿时间"]), "%Y-%m-%d")
+                days_left = (deadline - datetime.now()).days
+            except Exception as e:
+                days_left = "未知"
         else:
-            days_left = None
+            days_left = "未知"
         
         # 提取推荐信息
         results.append({
