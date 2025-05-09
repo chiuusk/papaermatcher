@@ -6,11 +6,11 @@ import tempfile
 import os
 from datetime import datetime
 
-st.set_page_config(layout="wide")
-st.title("📄 论文匹配会议助手")
-
 # 初始化模型
 model = SentenceTransformer('all-MiniLM-L6-v2')
+
+st.set_page_config(layout="wide")
+st.title("📄 论文匹配会议助手")
 
 # 初始化 session_state
 for key in ["conference_file", "paper_file"]:
@@ -75,46 +75,84 @@ with col2:
         except Exception as e:
             st.error(f"❌ PDF 处理失败：{e}")
 
+# 论文方向提取（核心改进点）
+def extract_paper_research_field(text):
+    """
+    从论文文本中提取研究方向的简单方法：可以根据文本嵌入计算与已知学科方向的相似度
+    """
+    # 常见学科方向（可以拓展）
+    academic_fields = [
+        "计算机科学", "电子工程", "生物医学", "化学", "物理", "材料科学", "医学", "人工智能", "数据科学", "社会学",
+        "心理学", "环境科学", "经济学", "教育学", "社会学", "地理学", "法学"
+    ]
+    
+    # 用模型计算文本嵌入向量
+    paper_embedding = model.encode(text, convert_to_tensor=True)
+
+    # 创建学科方向的嵌入向量
+    field_embeddings = model.encode(academic_fields, convert_to_tensor=True)
+
+    # 计算与每个学科方向的相似度
+    similarities = util.cos_sim(paper_embedding, field_embeddings).cpu().numpy().flatten()
+
+    # 按相似度排序并返回前三个学科方向及其相似度
+    top_indexes = similarities.argsort()[::-1][:3]
+    result = [(academic_fields[idx], similarities[idx]) for idx in top_indexes]
+    total_similarity = sum([similarity for _, similarity in result])
+    
+    # 返回学科方向及其对应的百分比
+    result_with_percentage = [(field, round(similarity / total_similarity * 100, 2)) for field, similarity in result]
+    return result_with_percentage
+
 # 执行匹配
 if st.session_state.conference_file is not None and st.session_state.paper_file is not None:
     st.divider()
-    st.subheader("📊 匭配结果")
+    st.subheader("📊 匹配结果")
 
-    # 从论文的标题、摘要、关键词提取学科方向
+    # 提取论文的学科方向
     paper_text = st.session_state.paper_file
-    paper_embedding = model.encode(paper_text, convert_to_tensor=True)
+    paper_fields = extract_paper_research_field(paper_text)
 
-    # 学科分类假设：通过论文的嵌入向量匹配到会议的学科方向
-    results = []
+    st.write("### 论文涉及的学科方向：")
+    for field, percentage in paper_fields:
+        st.write(f"**{field}**: {percentage}%")
 
     # 处理会议数据
-    for _, row in st.session_state.conference_file.iterrows():
-        row_text = " ".join(str(row[col]) for col in ["会议方向", "会议主题方向", "细分关键词"] if pd.notna(row[col]))
-        row_embedding = model.encode(row_text, convert_to_tensor=True)
-        similarity = util.cos_sim(paper_embedding, row_embedding).item()
+    results = []
+    with st.spinner("正在进行匹配，请稍等..."):
+        st.progress(0)  # 初始进度条
+        total_steps = len(st.session_state.conference_file)
         
-        # 计算截稿时间
-        if pd.notna(row.get("截稿时间", None)):
-            try:
-                deadline = datetime.strptime(str(row["截稿时间"]), "%Y-%m-%d")
-                days_left = (deadline - datetime.now()).days
-            except Exception as e:
+        for idx, (_, row) in enumerate(st.session_state.conference_file.iterrows()):
+            # 计算进度条
+            st.progress((idx + 1) / total_steps)
+
+            row_text = " ".join(str(row[col]) for col in ["会议方向", "会议主题方向", "细分关键词"] if pd.notna(row[col]))
+            row_embedding = model.encode(row_text, convert_to_tensor=True)
+            similarity = util.cos_sim(paper_embedding, row_embedding).item()
+            
+            # 计算截稿时间
+            if pd.notna(row.get("截稿时间", None)):
+                try:
+                    deadline = datetime.strptime(str(row["截稿时间"]), "%Y-%m-%d")
+                    days_left = (deadline - datetime.now()).days
+                except Exception as e:
+                    days_left = "未知"
+            else:
                 days_left = "未知"
-        else:
-            days_left = "未知"
-        
-        # 提取推荐信息
-        results.append({
-            "会议推荐标题": f"{row['会议系列名']} - {row['会议名']}",
-            "官网链接": row["官网链接"],
-            "动态出版标记": row["动态出版标记"],
-            "距离截稿时间(天)": days_left,
-            "匹配分数": round(similarity, 4),
-            "会议方向": row["会议方向"],
-            "论文研究方向": "论文研究方向待提取",  # 这里暂时设置为待提取，后续可以加入从论文中提取主要研究方向的代码
-            "细分关键词": row["细分关键词"],
-            "匹配分析": f"该会议的【{row['会议方向']}】与论文的研究方向匹配度较高。"  # 可根据实际需要调整匹配描述
-        })
+            
+            # 提取推荐信息
+            results.append({
+                "会议推荐标题": f"{row['会议系列名']} - {row['会议名']}",
+                "官网链接": row["官网链接"],
+                "动态出版标记": row["动态出版标记"],
+                "距离截稿时间(天)": days_left,
+                "匹配分数": round(similarity, 4),
+                "会议方向": row["会议方向"],
+                "论文研究方向": paper_fields[0][0],  # 只展示最高的匹配学科
+                "细分关键词": row["细分关键词"],
+                "匹配分析": f"该会议的【{row['会议方向']}】与论文的研究方向匹配度较高。"  # 可根据实际需要调整匹配描述
+            })
 
     # 排序并筛选前3个推荐会议
     sorted_results = sorted(results, key=lambda x: x["匹配分数"], reverse=True)
