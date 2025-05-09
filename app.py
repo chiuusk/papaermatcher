@@ -77,9 +77,32 @@ def perform_matching(conference_file, paper_file):
                     st.write(f"截稿时间: {conference['截稿时间']} (距离截稿还有 {conference['剩余天数']} 天)")
                     st.write(f"匹配分析: {conference['论文研究方向匹配']}")
             else:
-                st.write("没有找到完全匹配的会议，根据您的论文方向，推荐以下学科：")
-                st.write("推荐学科: 电力系统工程, 控制理论, 计算机科学")
-                st.write("可以参考这些方向的其他会议。")
+                st.write("没有找到完全匹配的会议，基于您的论文方向，推荐以下模糊匹配的学科方向：")
+                # 推荐大类学科方向
+                st.write("推荐学科方向: 电力系统工程, 控制理论, 计算机科学")
+                st.write("您可以参考这些学科方向下的相关会议。")
+                
+                # 模糊匹配大类学科方向
+                recommended_conferences = []
+                for index, row in conference_data.iterrows():
+                    for subject in paper_subjects:
+                        if subject in row['会议主题方向']:
+                            recommended_conferences.append({
+                                "会议系列名与会议名": f"{row['会议系列名']} - {row['会议名']}",
+                                "官网链接": row['官网链接'],
+                                "会议主题方向": row['会议主题方向'],
+                                "截稿时间": row['截稿时间'],
+                                "剩余天数": calculate_days_left(row['截稿时间'])
+                            })
+                
+                if recommended_conferences:
+                    for conference in recommended_conferences:
+                        st.write(f"**推荐会议：{conference['会议系列名与会议名']}**")
+                        st.write(f"官网链接: {conference['官网链接']}")
+                        st.write(f"会议主题方向: {conference['会议主题方向']}")
+                        st.write(f"截稿时间: {conference['截稿时间']} (距离截稿还有 {conference['剩余天数']} 天)")
+                else:
+                    st.write("没有找到任何符合推荐的大类学科方向的会议。")
         except Exception as e:
             st.error(f"加载会议文件时出错: {e}")
     else:
