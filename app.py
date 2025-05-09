@@ -1,84 +1,88 @@
 import streamlit as st
 import pandas as pd
+import os
 from sentence_transformers import SentenceTransformer, util
+from PyPDF2 import PdfReader
+import tempfile
 
-# 初始化模型
-model = SentenceTransformer("all-MiniLM-L6-v2")
+# 加载语义模型（小模型，适合部署）
+model = SentenceTransformer('all-MiniLM-L6-v2')
 
 st.set_page_config(layout="wide")
-st.title("📄 论文 - 会议匹配工具")
+st.title("📄 论文匹配会议推荐系统")
 
-# 左右两列布局
+# 文件上传区域（左右布局）
 left_col, right_col = st.columns(2)
 
-# 上传会议文件
 with left_col:
-    st.header("📌 上传会议文件")
-    conference_file = st.file_uploader("上传包含字段：会议名、会议方向、主题方向、细分领域", type=["xlsx"], key="conf_uploader")
-
+    st.header("📁 上传会议文件")
+    conference_file = st.file_uploader("上传会议文件（包含‘会议名’、‘会议方向’、‘会议主题方向’、‘细分方向’等字段）", type=["xlsx"], key="conf")
     if st.button("❌ 清除会议文件", key="clear_conf"):
-        st.session_state.conf_uploader = None
-        conference_file = None
+        st.experimental_rerun()
 
-# 上传论文文件
 with right_col:
     st.header("📄 上传论文文件")
-    paper_file = st.file_uploader("上传包含标题、摘要、关键词字段的文件", type=["xlsx"], key="paper_uploader")
-
+    paper_file = st.file_uploader("上传PDF论文文件（支持中文）", type=["pdf"], key="paper")
     if st.button("❌ 清除论文文件", key="clear_paper"):
-        st.session_state.paper_uploader = None
-        paper_file = None
+        st.experimental_rerun()
 
-# 显示匹配结果
-if conference_file and paper_file:
+# 功能函数：提取PDF纯文本
+def extract_text_from_pdf(uploaded_file):
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+        tmp_file.write(uploaded_file.read())
+        tmp_path = tmp_file.name
+    text = ""
+    with open(tmp_path, 'rb') as f:
+        pdf = PdfReader(f)
+        for page in pdf.pages:
+            text += page.extract_text() or ""
+    os.remove(tmp_path)
+    return text.strip()
+
+# 匹配逻辑
+def match_conferences(paper_text, df):
+    paper_embedding = model.encode(paper_text, convert_to_tensor=True)
+    results = []
+
+    for _, row in df.iterrows():
+        row_text = " ".join([str(row.get(col, '')) for col in ['会议名', '会议方向', '会议主题方向', '细分方向']])
+        conf_embedding = model.encode(row_text, convert_to_tensor=True)
+        score = float(util.cos_sim(paper_embedding, conf_embedding))
+        results.append({
+            "会议名": row.get("会议名", "N/A"),
+            "匹配度": round(score * 100, 2),
+            "会议方向": row.get("会议方向", ""),
+            "主题方向": row.get("会议主题方向", ""),
+            "细分方向": row.get("细分方向", "")
+        })
+
+    results = sorted(results, key=lambda x: x["匹配度"], reverse=True)
+    return results[:5]
+
+# 主逻辑
+if conference_file:
     try:
-        # 读取会议文件
-        df_conf = pd.read_excel(conference_file, engine="openpyxl")
-        df_conf.columns = df_conf.columns.str.strip()
+        conf_df = pd.read_excel(conference_file, engine="openpyxl")
+        conf_df.columns = conf_df.columns.str.strip()
 
-        # 字段兼容处理
-        if "会议名称" in df_conf.columns:
-            df_conf.rename(columns={"会议名称": "会议名"}, inplace=True)
+        # 字段标准化
+        if "会议名称" in conf_df.columns and "会议名" not in conf_df.columns:
+            conf_df.rename(columns={"会议名称": "会议名"}, inplace=True)
 
-        required_conf_cols = {"会议名", "会议方向", "会议主题方向", "会议细分领域"}
-        if not required_conf_cols.issubset(set(df_conf.columns)):
-            st.error(f"❌ 会议文件缺少必要字段：{required_conf_cols - set(df_conf.columns)}")
-        else:
-            # 读取论文文件
-            df_paper = pd.read_excel(paper_file, engine="openpyxl")
-            df_paper.columns = df_paper.columns.str.strip()
-
-            required_paper_cols = {"标题", "摘要", "关键词"}
-            if not required_paper_cols.issubset(set(df_paper.columns)):
-                st.error(f"❌ 论文文件缺少必要字段：{required_paper_cols - set(df_paper.columns)}")
+        required_fields = ["会议名", "会议方向", "会议主题方向", "细分方向"]
+        if not all(field in conf_df.columns for field in required_fields):
+            st.warning("❌ 缺少必要字段：会议名 / 会议方向 / 会议主题方向 / 细分方向")
+        elif paper_file:
+            with st.spinner("⏳ 正在提取论文内容..."):
+                paper_text = extract_text_from_pdf(paper_file)
+            if not paper_text:
+                st.error("❌ 无法从PDF中提取文本。请检查文件内容。")
             else:
-                st.success("✅ 文件读取成功，正在匹配...")
-
-                paper_texts = df_paper["标题"] + " " + df_paper["摘要"] + " " + df_paper["关键词"]
-                paper_embeddings = model.encode(paper_texts.tolist(), convert_to_tensor=True)
-
-                conf_texts = df_conf["会议方向"].astype(str) + " " + df_conf["会议主题方向"].astype(str) + " " + df_conf["会议细分领域"].astype(str)
-                conf_embeddings = model.encode(conf_texts.tolist(), convert_to_tensor=True)
-
-                results = []
-                for i, paper_emb in enumerate(paper_embeddings):
-                    sims = util.cos_sim(paper_emb, conf_embeddings)[0]
-                    best_idx = sims.argmax().item()
-                    best_score = sims[best_idx].item()
-                    best_row = df_conf.iloc[best_idx]
-
-                    results.append({
-                        "论文标题": df_paper.loc[i, "标题"],
-                        "匹配会议名": best_row["会议名"],
-                        "会议方向": best_row["会议方向"],
-                        "主题方向": best_row["会议主题方向"],
-                        "细分领域": best_row["会议细分领域"],
-                        "匹配得分": round(best_score, 4)
-                    })
-
-                df_result = pd.DataFrame(results)
-                st.subheader("🎯 匹配结果")
-                st.dataframe(df_result)
-
+                st.success("✅ 提取完成，正在匹配...")
+                top_matches = match_conferences(paper_text, conf_df)
+                st.markdown("### 🎯 匹配结果：")
+                st.table(pd.DataFrame(top_matches))
     except Exception as e:
-        st.error(f"❌ 处理出错：{str(e)}")
+        st.error(f"❌ 文件处理出错：{e}")
+else:
+    st.info("请先上传会议文件和论文文件。")
