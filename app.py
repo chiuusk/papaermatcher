@@ -48,8 +48,8 @@ def analyze_paper_subject(text):
 
 # 计算截稿时间剩余天数
 def calculate_days_left(cutoff_date):
-    if pd.notna(cutoff_date):
-        return (cutoff_date - datetime.datetime.now().date()).days
+    if pd.notna(cutoff_date) and isinstance(cutoff_date, (datetime.date, datetime.datetime)):
+        return (cutoff_date.date() - datetime.datetime.now().date()).days
     return "未知"
 
 # 显示进度条
