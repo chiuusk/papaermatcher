@@ -1,5 +1,7 @@
+streamlit
+sentence-transformers
+pandas
 pdfplumber
 python-docx
-sentence-transformers
-nltk
-pandas
+openpyxl
+torch
