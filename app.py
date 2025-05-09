@@ -6,8 +6,8 @@ import datetime
 from sentence_transformers import SentenceTransformer, util
 import os
 
-# 初始化模型
-model = SentenceTransformer('all-MiniLM-L6-v2')
+# 初始化模型，强制使用 CPU
+model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
 
 st.title("📄 智能论文匹配推荐会议工具")
 
