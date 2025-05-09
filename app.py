@@ -38,7 +38,7 @@ with col1:
                 rename_map["会议名称"] = "会议名"
             df.rename(columns=rename_map, inplace=True)
 
-            required_columns = ["会议名", "会议方向", "会议主题方向", "细分方向"]
+            required_columns = ["会议名", "会议方向", "会议主题方向", "细分关键词"]
             missing = [col for col in required_columns if col not in df.columns]
             if missing:
                 st.error(f"❌ 缺少必要字段：{ ' / '.join(missing) }")
@@ -83,14 +83,14 @@ if st.session_state.conference_file is not None and st.session_state.paper_file 
     results = []
 
     for _, row in st.session_state.conference_file.iterrows():
-        row_text = " ".join(str(row[col]) for col in ["会议方向", "会议主题方向", "细分方向"] if pd.notna(row[col]))
+        row_text = " ".join(str(row[col]) for col in ["会议方向", "会议主题方向", "细分关键词"] if pd.notna(row[col]))
         row_embedding = model.encode(row_text, convert_to_tensor=True)
         similarity = util.cos_sim(paper_embedding, row_embedding).item()
         results.append({
             "会议名": row["会议名"],
             "会议方向": row["会议方向"],
             "会议主题方向": row["会议主题方向"],
-            "细分方向": row["细分方向"],
+            "细分关键词": row["细分关键词"],
             "匹配分数": round(similarity, 4)
         })
 
