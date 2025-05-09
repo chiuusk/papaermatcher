@@ -66,5 +66,19 @@ if conference_file and paper_file:
                     best_idx = sims.argmax().item()
                     best_score = sims[best_idx].item()
                     best_row = df_conf.iloc[best_idx]
+
                     results.append({
                         "论文标题": df_paper.loc[i, "标题"],
+                        "匹配会议名": best_row["会议名"],
+                        "会议方向": best_row["会议方向"],
+                        "主题方向": best_row["会议主题方向"],
+                        "细分领域": best_row["会议细分领域"],
+                        "匹配得分": round(best_score, 4)
+                    })
+
+                df_result = pd.DataFrame(results)
+                st.subheader("🎯 匹配结果")
+                st.dataframe(df_result)
+
+    except Exception as e:
+        st.error(f"❌ 处理出错：{str(e)}")
