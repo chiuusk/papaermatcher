@@ -1,20 +1,28 @@
 import pandas as pd
 import streamlit as st
 
-# 读取会议文件
-if 'conference_file' in st.session_state:
+# 上传会议文件
+conference_file = st.file_uploader("上传会议文件", type=["xlsx"])
+
+if conference_file is not None:
     try:
-        conference_file = pd.read_excel(st.session_state.conference_file)
-        st.session_state.conference_file = conference_file
+        # 读取文件并存入 session_state
+        st.session_state.conference_file = pd.read_excel(conference_file)
+        st.success("会议文件上传成功！")
     except Exception as e:
         st.error(f"文件读取出错: {e}")
         st.stop()
 
-# 定义必须的列名（包括 '会议名' 和 '会议名称'）
-required_cols = ['会议名称', '会议名', '会议方向', '会议主题方向', '细分关键词', '动态出版标记', '截稿时间', '官网链接']
+# 检查是否存在文件
+if 'conference_file' not in st.session_state:
+    st.error("❌ 请先上传会议文件")
+    st.stop()
 
 # 获取实际列名
 columns = st.session_state.conference_file.columns.str.strip()
+
+# 定义必须的列名（包括 '会议名' 和 '会议名称'）
+required_cols = ['会议名称', '会议名', '会议方向', '会议主题方向', '细分关键词', '动态出版标记', '截稿时间', '官网链接']
 
 # 检查是否存在 '会议名' 或 '会议名称'
 if '会议名称' not in columns and '会议名' not in columns:
