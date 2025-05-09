@@ -1,65 +1,90 @@
 import streamlit as st
 import pandas as pd
 import datetime
-import time  # 添加 time 模块
+import time
+from io import BytesIO
 from PyPDF2 import PdfReader
-import docx
+from docx import Document
 
 # 读取会议文件
 def read_conference_file(file):
-    return pd.read_excel(file)
+    df = pd.read_excel(file)
+    return df
 
 # 读取PDF文件内容
 def read_pdf(file):
-    pdf_reader = PdfReader(file)
+    reader = PdfReader(file)
     text = ""
-    for page in pdf_reader.pages:
+    for page in reader.pages:
         text += page.extract_text()
     return text
 
 # 读取Word文件内容
 def read_word(file):
-    doc = docx.Document(file)
+    doc = Document(file)
     text = ""
     for para in doc.paragraphs:
         text += para.text
     return text
 
-# 判断论文学科方向
+# 显示进度条
+def show_progress_bar():
+    for _ in range(100):
+        time.sleep(0.05)  # 模拟长时间的处理
+        st.progress(_ + 1)
+
+# 计算距离截稿时间剩余天数
+def calculate_days_left(cutoff_date):
+    return (cutoff_date - datetime.datetime.now().date()).days
+
+# 论文的学科方向分析
 def analyze_paper_subject(text):
     subjects = {
-        '电气工程': ['PWM Rectifier', 'PI Control', 'Reinforcement Learning', 'Power Electronics', 'Control Theory'],
-        '计算机科学': ['Machine Learning', 'Artificial Intelligence', 'Neural Networks', 'Data Science'],
-        '医学': ['Biology', 'Medical Imaging', 'Neuroscience', 'Healthcare'],
-        '机械工程': ['Mechanical Systems', 'Robotics', 'Control Systems', 'Automation'],
+        '电气工程': {
+            'keywords': ['PWM Rectifier', 'PI Control', 'Reinforcement Learning', 'Power Electronics', 'Control Theory'],
+            'description': '电气工程方向，涉及电力电子、控制理论及其在电力系统中的应用。',
+        },
+        '计算机科学': {
+            'keywords': ['Machine Learning', 'Artificial Intelligence', 'Neural Networks', 'Data Science', 'Reinforcement Learning'],
+            'description': '计算机科学方向，主要涉及机器学习、人工智能及其应用于数据分析和决策系统。',
+        },
+        '医学': {
+            'keywords': ['Medical Imaging', 'Healthcare', 'Neuroscience', 'Biology', 'Medical Data'],
+            'description': '医学方向，涵盖医疗影像、生物医学研究以及临床数据分析等领域。',
+        },
+        '机械工程': {
+            'keywords': ['Mechanical Systems', 'Robotics', 'Control Systems', 'Automation'],
+            'description': '机械工程方向，关注机械系统设计、机器人技术及自动化控制。',
+        },
+        '材料科学': {
+            'keywords': ['Material Science', 'Nanotechnology', 'Semiconductor', 'Polymers'],
+            'description': '材料科学方向，涉及纳米技术、半导体以及新型材料的开发与应用。',
+        },
+        '化学工程': {
+            'keywords': ['Chemical Engineering', 'Process Optimization', 'Catalysis', 'Polymerization'],
+            'description': '化学工程方向，主要研究化学过程、反应工程和催化技术等领域。',
+        },
+        # 可以继续添加更多学科
     }
     
     paper_subjects = {}
     
-    for subject, keywords in subjects.items():
-        match_count = sum(keyword in text for keyword in keywords)
+    # 统计每个学科方向与论文中匹配的关键词个数
+    for subject, data in subjects.items():
+        match_count = sum(keyword in text for keyword in data['keywords'])
         if match_count > 0:
-            paper_subjects[subject] = match_count
+            paper_subjects[subject] = {
+                'count': match_count,
+                'description': data['description'],
+            }
     
-    total_matches = sum(paper_subjects.values())
-    subject_percentages = {subject: (matches / total_matches) * 100 for subject, matches in paper_subjects.items()}
+    total_matches = sum(subject['count'] for subject in paper_subjects.values())
+    
+    # 计算每个学科的占比
+    subject_percentages = {subject: (data['count'] / total_matches) * 100 for subject, data in paper_subjects.items()}
     
     return paper_subjects, subject_percentages
 
-# 计算截稿时间剩余天数
-def calculate_days_left(cutoff_date):
-    if pd.notna(cutoff_date) and isinstance(cutoff_date, (datetime.date, datetime.datetime)):
-        return (cutoff_date.date() - datetime.datetime.now().date()).days
-    return "未知"
-
-# 显示进度条
-def show_progress_bar():
-    progress_bar = st.progress(0)
-    for i in range(100):
-        progress_bar.progress(i + 1)
-        time.sleep(0.05)
-
-# 主程序
 def main():
     st.title("论文匹配工具")
     
@@ -88,8 +113,9 @@ def main():
         
         # 显示学科分析详情
         st.subheader("学科分析详细信息")
-        for subject, count in paper_subjects.items():
-            st.write(f"学科方向：{subject}, 匹配关键词个数：{count}")
+        for subject, data in paper_subjects.items():
+            st.write(f"学科方向：{subject}, 匹配关键词个数：{data['count']}")
+            st.write(f"描述：{data['description']}")
         
         # 显示匹配结果
         if 'conference_file' in st.session_state:
