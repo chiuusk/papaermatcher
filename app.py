@@ -46,6 +46,12 @@ def analyze_paper_subject(text):
     
     return paper_subjects, subject_percentages
 
+# 计算截稿时间剩余天数
+def calculate_days_left(cutoff_date):
+    if pd.notna(cutoff_date):
+        return (cutoff_date - datetime.datetime.now().date()).days
+    return "未知"
+
 # 显示进度条
 def show_progress_bar():
     progress_bar = st.progress(0)
@@ -101,7 +107,7 @@ def main():
                     conference_url = row["官网链接"]
                     cutoff_date = row["截稿时间"]
                     dynamic_publish = row["动态出版标记"]
-                    days_left = (cutoff_date - datetime.datetime.now().date()).days if pd.notna(cutoff_date) else "未知"
+                    days_left = calculate_days_left(cutoff_date)  # 使用新的函数
                     
                     # 匹配分析
                     matched_subjects = []
