@@ -10,7 +10,8 @@ from sentence_transformers import SentenceTransformer, util
 nltk.download('punkt')
 from nltk.tokenize import sent_tokenize
 
-model = SentenceTransformer('all-MiniLM-L6-v2')
+# 将模型加载到 CPU
+model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
 
 
 # ========== 工具函数 ==========
