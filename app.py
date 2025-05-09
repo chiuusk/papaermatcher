@@ -1,130 +1,106 @@
 import streamlit as st
 import pandas as pd
 import datetime
-import io
 import time
 
 # 计算剩余天数
 def calculate_days_left(cutoff_date):
-    return (cutoff_date - datetime.datetime.now().date()).days
+    try:
+        return (cutoff_date - datetime.datetime.now().date()).days
+    except:
+        return "未知"
 
-# 文件上传处理函数
+# 上传函数
 def upload_conference_file():
-    uploaded_file = st.file_uploader("上传会议文件", type=["xlsx"])
-    return uploaded_file
+    return st.file_uploader("📅 上传会议文件", type=["xlsx"], key="conf_file")
 
 def upload_paper_file():
-    uploaded_file = st.file_uploader("上传论文文件", type=["pdf", "docx"])
-    return uploaded_file
+    return st.file_uploader("📄 上传论文文件", type=["pdf", "docx"], key="paper_file")
 
-# 论文文件学科分析
+# 论文学科方向分析（模拟）
 def analyze_paper_subject(paper_file):
-    # 模拟学科分析, 实际可使用NLP模型或规则
-    paper_text = "Reinforcement Learning-Based PI Control Strategy for Single-Phase Voltage Source PWM Rectifier"
-    
-    # 模拟返回结果
+    st.subheader("📘 论文学科方向分析")
+    st.markdown("通过标题与摘要提取的关键词，系统分析如下学科权重：")
+
+    # 示例结果
     subjects = {
         "电力系统": 40,
         "控制理论": 35,
         "计算机科学": 25
     }
-    
-    st.write("论文学科方向分析：")
-    st.write(f"该论文涉及的学科及其比例：")
+
     for subject, percent in subjects.items():
-        st.write(f"{subject}: {percent}%")
-    
+        st.markdown(f"- **{subject}**：{percent}%")
     return subjects
 
-# 匹配函数
+# 主匹配函数
 def perform_matching(conference_file, paper_file):
-    if conference_file is not None:
-        try:
-            # 读取上传的会议文件
-            conference_data = pd.read_excel(conference_file)  # 直接从上传的文件中读取
-            st.write("会议文件加载成功")
-            
-            # 获取论文分析结果
-            paper_subjects = analyze_paper_subject(paper_file)
-            
-            matching_conferences = []
-            for index, row in conference_data.iterrows():
-                # 检查会议是否符合条件，假设示例的匹配条件
-                if 'Symposium' not in row['会议名']:
-                    # 获取匹配的会议方向
-                    conference_subjects = row['会议主题方向'].split(',')  # 假设会议的主题方向列是以逗号分隔
-                    matching_score = 0
-                    for subject in paper_subjects:
-                        if subject in conference_subjects:
-                            matching_score += paper_subjects[subject]
-                    
-                    if matching_score > 0:
-                        matching_conferences.append({
-                            "会议系列名与会议名": f"{row['会议系列名']} - {row['会议名']}",
-                            "官网链接": row['官网链接'],
-                            "动态出版标记": row['动态出版标记'],
-                            "截稿时间": row['截稿时间'],
-                            "剩余天数": calculate_days_left(row['截稿时间']),
-                            "论文研究方向匹配": f"与{row['会议主题方向']}匹配"
-                        })
-            
-            # 展示匹配的会议
-            if matching_conferences:
-                for conference in matching_conferences:
-                    st.write(f"**会议推荐：{conference['会议系列名与会议名']}**")
-                    st.write(f"官网链接: {conference['官网链接']}")
-                    st.write(f"动态出版标记: {conference['动态出版标记']}")
-                    st.write(f"截稿时间: {conference['截稿时间']} (距离截稿还有 {conference['剩余天数']} 天)")
-                    st.write(f"匹配分析: {conference['论文研究方向匹配']}")
-            else:
-                st.write("没有找到完全匹配的会议，基于您的论文方向，推荐以下模糊匹配的学科方向：")
-                # 推荐大类学科方向
-                st.write("推荐学科方向: 电力系统工程, 控制理论, 计算机科学")
-                st.write("您可以参考这些学科方向下的相关会议。")
-                
-                # 模糊匹配大类学科方向
-                recommended_conferences = []
-                for index, row in conference_data.iterrows():
-                    for subject in paper_subjects:
-                        if subject in row['会议主题方向']:
-                            recommended_conferences.append({
-                                "会议系列名与会议名": f"{row['会议系列名']} - {row['会议名']}",
-                                "官网链接": row['官网链接'],
-                                "会议主题方向": row['会议主题方向'],
-                                "截稿时间": row['截稿时间'],
-                                "剩余天数": calculate_days_left(row['截稿时间'])
-                            })
-                
-                if recommended_conferences:
-                    for conference in recommended_conferences:
-                        st.write(f"**推荐会议：{conference['会议系列名与会议名']}**")
-                        st.write(f"官网链接: {conference['官网链接']}")
-                        st.write(f"会议主题方向: {conference['会议主题方向']}")
-                        st.write(f"截稿时间: {conference['截稿时间']} (距离截稿还有 {conference['剩余天数']} 天)")
-                else:
-                    st.write("没有找到任何符合推荐的大类学科方向的会议。")
-        except Exception as e:
-            st.error(f"加载会议文件时出错: {e}")
-    else:
-        st.error("请上传有效的会议文件")
+    try:
+        conference_data = pd.read_excel(conference_file)
+    except Exception as e:
+        st.error(f"会议文件加载失败: {e}")
+        return
 
-# 主函数
-def main():
-    st.title("论文与会议匹配系统")
-    
-    # 上传会议文件区
-    conference_file = upload_conference_file()
-    
-    # 上传论文文件区
-    paper_file = upload_paper_file()
-    
-    # 如果论文文件上传了，进行进一步的分析与匹配
-    if paper_file:
-        st.write("正在进行论文分析...")
-        time.sleep(1)  # 模拟分析时间
-        perform_matching(conference_file, paper_file)  # 传递上传的会议文件进行匹配
+    paper_subjects = analyze_paper_subject(paper_file)
+
+    st.subheader("🎯 匹配推荐会议")
+
+    matching_conferences = []
+    for _, row in conference_data.iterrows():
+        try:
+            topics = str(row['会议主题方向']).split(',')
+            score = sum([paper_subjects.get(topic.strip(), 0) for topic in topics])
+            if score > 0:
+                matching_conferences.append({
+                    "会议名称": f"{row['会议系列名']} - {row['会议名']}",
+                    "官网链接": row.get("官网链接", ""),
+                    "主题方向": row.get("会议主题方向", ""),
+                    "动态出版": row.get("动态出版标记", ""),
+                    "截稿时间": row.get("截稿时间", "未知"),
+                    "剩余天数": calculate_days_left(row.get("截稿时间"))
+                })
+        except:
+            continue
+
+    if matching_conferences:
+        for i, conf in enumerate(matching_conferences):
+            st.markdown(f"##### 🏁 推荐会议 {i+1}: **{conf['会议名称']}**")
+            st.markdown(f"- **主题方向**: {conf['主题方向']}")
+            st.markdown(f"- **动态出版**: {conf['动态出版']}")
+            st.markdown(f"- **官网链接**: [点击访问]({conf['官网链接']})" if conf["官网链接"] else "- 官网链接: 暂无")
+            st.markdown(f"- **截稿时间**: {conf['截稿时间']}（还有 **{conf['剩余天数']} 天**）")
+            st.markdown("---")
     else:
-        st.write("请先上传论文文件进行匹配。")
+        st.markdown("⚠️ 未发现完全匹配的会议，以下是基于大方向的推荐：")
+        for _, row in conference_data.iterrows():
+            if any(subject in row.get("会议主题方向", "") for subject in paper_subjects):
+                st.markdown(f"**📌 可能相关会议：{row['会议系列名']} - {row['会议名']}**")
+                st.markdown(f"- 主题方向: {row['会议主题方向']}")
+                st.markdown("---")
+
+# 主界面
+def main():
+    st.set_page_config(page_title="论文会议匹配工具", layout="wide")
+
+    st.title("📚 智能论文会议匹配系统")
+    st.markdown("根据上传的论文内容，自动识别其研究方向并匹配合适的会议。")
+
+    # 页面分栏
+    left, right = st.columns(2)
+
+    with left:
+        st.markdown("### 🗂 上传会议文件")
+        conference_file = upload_conference_file()
+
+    with right:
+        st.markdown("### 📑 上传论文文件")
+        paper_file = upload_paper_file()
+
+    if paper_file:
+        time.sleep(0.5)
+        perform_matching(conference_file, paper_file)
+    else:
+        st.info("请上传论文文件以开始匹配。")
 
 if __name__ == "__main__":
     main()
