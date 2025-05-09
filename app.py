@@ -29,9 +29,8 @@ def read_word(file):
 
 # 显示进度条
 def show_progress_bar():
-    for _ in range(100):
-        time.sleep(0.05)  # 模拟长时间的处理
-        st.progress(_ + 1)
+    with st.spinner("正在处理数据..."):
+        time.sleep(2)  # 模拟长时间的处理
 
 # 直接返回截稿日期
 def display_cutoff_date(cutoff_date):
@@ -153,6 +152,13 @@ def main():
                             "匹配学科方向": matched_subjects,
                         })
             
+            # 如果没有合适的会议，根据论文关键词进行学科匹配
+            if not match_results:
+                st.subheader("没有合适的会议，基于论文关键词匹配的学科方向")
+                for subject, percentage in subject_percentages.items():
+                    st.write(f"学科方向：{subject}, 匹配程度：{percentage:.2f}%")
+                    st.write(f"根据论文中的关键词，推荐此学科方向。")
+            
             # 展示匹配结果
             if match_results:
                 st.subheader("匹配的推荐会议")
@@ -163,7 +169,7 @@ def main():
                     st.write(f"截稿日期：{result['截稿日期']}")
                     st.write(f"匹配学科方向：{', '.join(result['匹配学科方向'])}")
             else:
-                st.write("没有找到合适的会议")
+                st.write("没有找到合适的会议，已根据关键词提供可能的学科方向匹配。")
 
 if __name__ == "__main__":
     main()
