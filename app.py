@@ -3,79 +3,77 @@ import pandas as pd
 import datetime
 from PyPDF2 import PdfReader
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 import requests
-from bs4 import BeautifulSoup
 
-st.set_page_config(page_title="论文匹配推荐", layout="wide")
+# 设置页面配置
+st.set_page_config(page_title="论文会议匹配推荐", layout="wide")
 st.title("📚 论文会议匹配推荐系统")
 
+# 文件上传
 st.sidebar.header("1️⃣ 上传论文 PDF")
 pdf_file = st.sidebar.file_uploader("上传论文 PDF 文件", type=["pdf"])
 
 st.sidebar.header("2️⃣ 上传会议列表 Excel")
 conf_file = st.sidebar.file_uploader("上传会议 Excel 文件", type=["xlsx"])
 
+# 设置匹配参数
 st.sidebar.header("3️⃣ 设置匹配参数")
 days_today = datetime.datetime.now()
 
+# 文件上传后处理
 if pdf_file and conf_file:
-    # 读取 PDF 文件
-    pdf_reader = PdfReader(pdf_file)
-    text = ""
-    for page in pdf_reader.pages[:2]:  # 取前两页提取信息
-        text += page.extract_text() or ""
+    with st.spinner('正在处理文件，请稍候...'):
+        try:
+            # 读取 PDF 文件
+            pdf_reader = PdfReader(pdf_file)
+            text = ""
+            for page in pdf_reader.pages[:2]:  # 提取前两页
+                text += page.extract_text() or ""
+            
+            # 提取论文关键词
+            vectorizer = TfidfVectorizer(stop_words='english', max_features=10)
+            tfidf = vectorizer.fit_transform([text])
+            paper_keywords = vectorizer.get_feature_names_out()
 
-    # 简单提取关键词（可换更复杂的模型）
-    vectorizer = TfidfVectorizer(stop_words='english', max_features=10)
-    tfidf = vectorizer.fit_transform([text])
-    paper_keywords = vectorizer.get_feature_names_out()
+            st.markdown("### 📄 论文提取信息")
+            st.write("**自动识别关键词：**", ", ".join(paper_keywords))
 
-    st.markdown("### 📄 论文提取信息")
-    st.write("**自动识别关键词：**", ", ".join(paper_keywords))
+            # 读取会议数据
+            df = pd.read_excel(conf_file)
 
-    # 读取会议数据
-    df = pd.read_excel(conf_file)
-    st.write("会议列表：", df.head())  # 显示会议数据，帮助检查是否读取成功
+            # 确认会议数据是否包含 "Keywords" 列
+            if 'Keywords' not in df.columns:
+                st.error("会议数据中缺少 'Keywords' 列，请检查文件格式。")
+            else:
+                conf_keywords = df['Keywords']  # 获取会议的关键词列
+                st.write("**会议关键词：**", ", ".join(conf_keywords.head()))
 
-    # 假设会议列表中有"会议标题"列和"会议主题"列，你可以修改为实际列名
-    conference_titles = df['Conference Title']  # 替换为实际的会议标题列
-    conference_topics = df['Conference Topics']  # 替换为实际的会议主题列
-    
-    # 抓取会议网站的关键词（假设会议网站列在 Excel 中）
-    def get_conference_keywords(url):
-        response = requests.get(url)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        keywords_meta = soup.find('meta', {'name': 'keywords'})
-        if keywords_meta:
-            return keywords_meta.get('content', '')
-        else:
-            keywords_div = soup.find('div', {'class': 'conference-keywords'})
-            return keywords_div.text.strip() if keywords_div else "无关键词"
+                # 计算论文和会议之间的相似度
+                vectorizer_conf = TfidfVectorizer(stop_words='english')
+                tfidf_conf = vectorizer_conf.fit_transform(conf_keywords.astype(str))
+                paper_tfidf = vectorizer_conf.transform([text])
+                similarity_scores = cosine_similarity(paper_tfidf, tfidf_conf)
 
-    # 获取会议关键词（假设会议 Excel 文件中有 URL 列）
-    conference_keywords = []
-    for url in df['Conference URL']:  # 假设会议 URL 列名为 'Conference URL'
-        keywords = get_conference_keywords(url)
-        conference_keywords.append(keywords)
+                # 显示相似度排序的会议
+                st.markdown("### 🔍 匹配结果")
+                similarity_df = pd.DataFrame(similarity_scores.T, columns=["相似度"], index=df["Conference Name"])
+                similarity_df = similarity_df.sort_values(by="相似度", ascending=False)
 
-    df['Keywords'] = conference_keywords
+                st.write(similarity_df)
 
-    # 合并会议标题、主题和爬取的关键词，作为与论文匹配的文本数据
-    conference_texts = conference_titles + " " + conference_topics + " " + df['Keywords']
-    
-    # 计算论文与每个会议的相似度（基于会议标题、主题和关键词）
-    vectorizer = TfidfVectorizer(stop_words='english')
-    conf_tfidf = vectorizer.fit_transform(conference_texts)
-    paper_tfidf = vectorizer.transform([text])
+                st.success('文件处理完成！')
 
-    # 计算相似度
-    similarities = cosine_similarity(paper_tfidf, conf_tfidf)
-    
-    # 找到最匹配的会议
-    matched_conferences = df.iloc[similarities.argmax()]
-    st.write("### 最匹配的会议")
-    st.write(matched_conferences)
-    
-    # 在上传文件后刷新页面
-    st.experimental_rerun()
+        except Exception as e:
+            st.error(f"文件处理时出错: {e}")
+
+# 会议爬虫示例（可选）
+st.sidebar.header("4️⃣ 可选 - 会议爬虫")
+meeting_url = st.sidebar.text_input("输入会议网站URL（可选）")
+
+if meeting_url:
+    try:
+        response = requests.get(meeting_url, timeout=10)  # 设置请求超时为10秒
+        response.raise_for_status()  # 如果状态码不为 200，会抛出异常
+        st.write("成功爬取网站数据")
+    except requests.exceptions.RequestException as e:
+        st.error(f"爬虫请求失败: {e}")
