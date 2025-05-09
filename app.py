@@ -35,7 +35,15 @@ def show_progress_bar():
 
 # 计算距离截稿时间剩余天数
 def calculate_days_left(cutoff_date):
-    return (cutoff_date - datetime.datetime.now().date()).days
+    # 确保截止日期是datetime格式
+    if isinstance(cutoff_date, str):
+        cutoff_date = pd.to_datetime(cutoff_date, errors='coerce').date()
+    
+    # 计算剩余天数
+    if pd.notna(cutoff_date):
+        return (cutoff_date - datetime.datetime.now().date()).days
+    else:
+        return "未知"
 
 # 论文的学科方向分析
 def analyze_paper_subject(text):
