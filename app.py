@@ -109,4 +109,25 @@ if paper_file:
     paper_embedding = model.encode(combined_text, convert_to_tensor=True)
 
     st.subheader("📋 上传会议信息文件（CSV）")
-    conference_file = st.file_uploader("包含字段：会议名称、会议方向、会议主题方向、细分
+    conference_file = st.file_uploader(
+        "请上传包含字段：会议名称、会议方向、会议主题方向、细分关键词、截稿时间（YYYY-MM-DD）、官网链接",
+        type=["csv"]
+    )
+
+    if conference_file:
+        conf_df = pd.read_csv(conference_file)
+        st.success("会议信息读取成功，共加载 {} 条记录。".format(len(conf_df)))
+
+        recommendations = match_conference(paper_embedding, conf_df)
+
+        st.subheader("🎯 推荐会议")
+        for rec in recommendations:
+            st.markdown(f"""
+            ### [{rec['会议名称']}]({rec['官网链接']})
+            - **匹配理由**: 论文关键词与会议关键词或方向匹配，如：{', '.join(rec['匹配关键词'])}
+            - **匹配度**: {rec['匹配度']:.2f}
+            - **距离截稿时间**: {rec['剩余天数']} 天
+            """)
+
+st.markdown("---")
+st.markdown("由 GPT + Sentence Transformers 提供语义分析支持")
