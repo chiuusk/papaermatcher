@@ -1,115 +1,130 @@
 import streamlit as st
+import pdfplumber
+import docx
 import pandas as pd
 import datetime
-import requests
-from bs4 import BeautifulSoup
-from PyPDF2 import PdfReader
-from docx import Document
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+import re
+import nltk
+from sentence_transformers import SentenceTransformer, util
 
-# 页面配置
-st.set_page_config(page_title="论文会议智能推荐", layout="wide")
-st.title("📚 论文会议智能推荐系统")
+nltk.download('punkt')
+from nltk.tokenize import sent_tokenize
 
-# 文件上传部分
-st.sidebar.header("1️⃣ 上传论文文件（PDF 或 Word）")
-paper_file = st.sidebar.file_uploader("上传 PDF 或 Word 文件", type=["pdf", "docx"])
+model = SentenceTransformer('all-MiniLM-L6-v2')
 
-st.sidebar.header("2️⃣ 上传会议 Excel 文件")
-conf_file = st.sidebar.file_uploader("上传会议列表文件（Excel）", type=["xlsx"])
 
-# 获取当前时间
-now = datetime.datetime.now()
+# ========== 工具函数 ==========
 
-# 提取论文文本
-def extract_text_from_file(uploaded_file):
-    text = ""
-    if uploaded_file.name.endswith(".pdf"):
-        reader = PdfReader(uploaded_file)
-        for page in reader.pages[:2]:
-            text += page.extract_text() or ""
-    elif uploaded_file.name.endswith(".docx"):
-        doc = Document(uploaded_file)
-        for para in doc.paragraphs:
-            text += para.text + "\n"
+def extract_text_from_pdf(file):
+    with pdfplumber.open(file) as pdf:
+        text = "\n".join(page.extract_text() for page in pdf.pages if page.extract_text())
     return text
 
-# 从会议官网提取关键词
-def extract_keywords_from_url(url):
-    try:
-        response = requests.get(url, timeout=10)
-        soup = BeautifulSoup(response.text, "html.parser")
-        text = soup.get_text()
-        return text
-    except:
-        return ""
 
-# 主逻辑
-if paper_file and conf_file:
-    with st.spinner("正在分析论文与会议匹配度..."):
+def extract_text_from_docx(file):
+    doc = docx.Document(file)
+    return "\n".join([para.text for para in doc.paragraphs])
+
+
+def extract_sections(text):
+    text = text.replace('\n', ' ')
+    sentences = sent_tokenize(text)
+
+    title = sentences[0] if len(sentences) > 0 else ""
+    abstract = next((s for s in sentences if "abstract" in s.lower()), "")
+    keywords = re.findall(r"[Kk]eywords?\s*[:：]?\s*(.*?)\.", text)
+    conclusion = next((s for s in sentences[::-1] if "conclusion" in s.lower()), "")
+
+    return {
+        "title": title.strip(),
+        "abstract": abstract.strip(),
+        "keywords": keywords[0].strip() if keywords else "",
+        "conclusion": conclusion.strip()
+    }
+
+
+def match_conference(paper_embedding, conference_df):
+    results = []
+
+    for _, row in conference_df.iterrows():
+        keywords = f"{row['会议方向']} {row['会议主题方向']} {row['细分关键词']}"
+        conf_embedding = model.encode(keywords, convert_to_tensor=True)
+        score = util.cos_sim(paper_embedding, conf_embedding).item()
+
+        # 提取会议相关关键词和方向
+        matched_keywords = []
+        for keyword in [row['会议方向'], row['会议主题方向'], row['细分关键词']]:
+            if keyword.lower() in paper_embedding.lower():
+                matched_keywords.append(keyword)
+
+        results.append({
+            "会议名称": row["会议名称"],
+            "官网链接": row["官网链接"],
+            "截稿时间": row["截稿时间"],
+            "匹配度": score,
+            "匹配关键词": matched_keywords,
+            "会议方向": row['会议方向'],
+            "细分关键词": row['细分关键词']
+        })
+
+    top2 = sorted(results, key=lambda x: x["匹配度"], reverse=True)[:2]
+
+    # 计算距离截稿时间
+    for conf in top2:
         try:
-            # 1. 读取论文内容
-            paper_text = extract_text_from_file(paper_file)
+            conf["剩余天数"] = (
+                datetime.datetime.strptime(conf["截稿时间"], "%Y-%m-%d") - datetime.datetime.now()
+            ).days
+        except:
+            conf["剩余天数"] = "未知"
+    
+    return top2
 
-            # 提取关键词
-            tfidf_vec = TfidfVectorizer(stop_words='english', max_features=10)
-            paper_tfidf = tfidf_vec.fit_transform([paper_text])
-            paper_keywords = tfidf_vec.get_feature_names_out()
 
-            st.markdown("### 📄 自动提取的论文关键词")
-            st.write(", ".join(paper_keywords))
+# ========== Streamlit 界面 ==========
 
-            # 2. 读取会议数据
-            df = pd.read_excel(conf_file)
+st.title("📄 论文学科方向识别与会议推荐工具")
 
-            # 列名映射
-            df = df.rename(columns={"会议名": "会议名称"})
+# 上传论文
+paper_file = st.file_uploader("上传论文（PDF 或 Word）", type=["pdf", "docx"])
+if paper_file:
+    if paper_file.type == "application/pdf":
+        full_text = extract_text_from_pdf(paper_file)
+    else:
+        full_text = extract_text_from_docx(paper_file)
 
-            required_columns = ["会议系列名", "会议名称", "当前状态", "官网链接", "会议地点", "会议方向", "会议主题方向", "细分关键词", "截稿时间"]
-            if not all(col in df.columns for col in required_columns):
-                st.error(f"Excel 缺少必要字段，请确保包含：{', '.join(required_columns)}")
-            else:
-                # 3. 过滤条件
-                df = df[
-                    (df["当前状态"] == "征稿阶段") &
-                    (df["官网链接"].notna()) &
-                    (df["会议地点"].notna())
-                ]
+    sections = extract_sections(full_text)
+    st.subheader("📌 提取信息")
+    st.markdown(f"**标题**: {sections['title']}")
+    st.markdown(f"**摘要**: {sections['abstract']}")
+    st.markdown(f"**关键词**: {sections['keywords']}")
+    st.markdown(f"**结论段落**: {sections['conclusion']}")
 
-                # 构建会议关键词文本
-                df["综合关键词"] = df[["会议方向", "会议主题方向", "细分关键词"]].astype(str).agg(" ".join, axis=1)
+    # 论文向量化
+    combined_text = " ".join([
+        sections["title"], sections["abstract"], sections["keywords"], sections["conclusion"]
+    ])
+    paper_embedding = model.encode(combined_text, convert_to_tensor=True)
 
-                # 访问官网内容并附加
-                website_texts = []
-                for link in df["官网链接"]:
-                    website_texts.append(extract_keywords_from_url(link))
-                df["官网内容"] = website_texts
+    # 上传会议文件
+    st.subheader("📋 上传会议信息文件（CSV）")
+    conference_file = st.file_uploader("包含字段：会议名称、会议方向、会议主题方向、细分关键词、截稿时间（YYYY-MM-DD）、官网链接", type=["csv"])
 
-                # 合并关键词和网页文本做匹配
-                df["匹配文本"] = df["综合关键词"] + " " + df["官网内容"]
+    if conference_file:
+        conf_df = pd.read_csv(conference_file)
+        st.success("会议信息读取成功，共加载 {} 条记录。".format(len(conf_df)))
 
-                # 计算相似度
-                conf_tfidf = tfidf_vec.transform(df["匹配文本"])
-                similarity = cosine_similarity(paper_tfidf, conf_tfidf).flatten()
-                df["匹配度"] = similarity
+        recommendations = match_conference(paper_embedding, conf_df)
 
-                # 距离截稿时间
-                df["距离截稿"] = df["截稿时间"].apply(lambda d: (pd.to_datetime(d) - now).days if pd.notnull(d) else None)
+        st.subheader("🎯 推荐会议")
+        for rec in recommendations:
+            st.markdown(f"""
+            ### [{rec['会议名称']}]({rec['官网链接']})
+            - **匹配理由**: 论文中的关键词与会议方向匹配：{', '.join(rec['匹配关键词'])}
+            - **匹配度**: {rec['匹配度']:.2f}
+            - **距离截稿时间**: {rec['剩余天数']} 天
+            """)
 
-                # 推荐前2名
-                top_matches = df.sort_values(by="匹配度", ascending=False).head(2)
-
-                st.markdown("### 🏆 推荐会议")
-                for _, row in top_matches.iterrows():
-                    st.markdown(f"""
-                    #### {row['会议系列名']} - {row['会议名称']}
-                    - **官网链接：** [{row['官网链接']}]({row['官网链接']})
-                    - **匹配理由：** 关键词内容相符（匹配度: {row['匹配度']:.2f}）
-                    - **距离截稿时间：** {row['距离截稿']} 天
-                    """)
-
-                st.success("推荐完成！")
-
-        except Exception as e:
-            st.error(f"运行出错：{e}")
+# 底部
+st.markdown("---")
+st.markdown("由 GPT + Sentence Transformers 提供语义分析支持")
