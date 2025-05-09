@@ -80,7 +80,11 @@ if st.session_state.conference_file is not None and st.session_state.paper_file 
     st.divider()
     st.subheader("📊 匭配结果")
 
-    paper_embedding = model.encode(st.session_state.paper_file, convert_to_tensor=True)
+    # 从论文的标题、摘要、关键词提取学科方向
+    paper_text = st.session_state.paper_file
+    paper_embedding = model.encode(paper_text, convert_to_tensor=True)
+
+    # 学科分类假设：通过论文的嵌入向量匹配到会议的学科方向
     results = []
 
     # 处理会议数据
