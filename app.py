@@ -33,15 +33,10 @@ def show_progress_bar():
         time.sleep(0.05)  # 模拟长时间的处理
         st.progress(_ + 1)
 
-# 计算距离截稿时间剩余天数
-def calculate_days_left(cutoff_date):
-    # 确保截止日期是datetime格式
-    if isinstance(cutoff_date, str):
-        cutoff_date = pd.to_datetime(cutoff_date, errors='coerce').date()
-    
-    # 计算剩余天数
+# 直接返回截稿日期
+def display_cutoff_date(cutoff_date):
     if pd.notna(cutoff_date):
-        return (cutoff_date - datetime.datetime.now().date()).days
+        return cutoff_date.strftime("%Y-%m-%d")
     else:
         return "未知"
 
@@ -141,7 +136,7 @@ def main():
                     conference_url = row["官网链接"]
                     cutoff_date = row["截稿时间"]
                     dynamic_publish = row["动态出版标记"]
-                    days_left = calculate_days_left(cutoff_date)  # 使用新的函数
+                    days_left = display_cutoff_date(cutoff_date)  # 显示截稿日期
                     
                     # 匹配分析
                     matched_subjects = []
@@ -154,7 +149,7 @@ def main():
                             "推荐会议": conference_title,
                             "官网链接": conference_url,
                             "动态出版标记": dynamic_publish,
-                            "截稿时间剩余": f"{days_left}天",
+                            "截稿日期": days_left,
                             "匹配学科方向": matched_subjects,
                         })
             
@@ -165,7 +160,7 @@ def main():
                     st.write(f"**推荐会议：** {result['推荐会议']}")
                     st.write(f"官网链接：{result['官网链接']}")
                     st.write(f"动态出版标记：{result['动态出版标记']}")
-                    st.write(f"距离截稿还有：{result['截稿时间剩余']}")
+                    st.write(f"截稿日期：{result['截稿日期']}")
                     st.write(f"匹配学科方向：{', '.join(result['匹配学科方向'])}")
             else:
                 st.write("没有找到合适的会议")
