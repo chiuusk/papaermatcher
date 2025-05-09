@@ -3,74 +3,103 @@ import pandas as pd
 import datetime
 
 # 设置页面标题和布局
-st.set_page_config(page_title="论文会议匹配工具", layout="wide")
+st.set_page_config(page_title="论文与会议匹配系统", layout="wide")
 
-def upload_files():
-    # 会议文件上传区域放在侧边栏，尺寸较小
+# 上传会议文件区（缩小，放在左上角）
+def upload_conference_file():
     with st.sidebar:
         st.subheader("上传会议文件")
         conference_file = st.file_uploader("选择会议文件", type=["xlsx", "csv"], label_visibility="collapsed")
         if conference_file:
             st.sidebar.write("会议文件已上传")
-            # 这里可以添加处理会议文件的逻辑
-            # 例如加载会议文件数据并展示或进行分析
+            # 这里可以处理会议文件数据
         else:
             st.sidebar.write("没有上传会议文件")
-    
-    # 显示论文文件上传板块，放大并居中显示
+    return conference_file
+
+# 上传论文文件区
+def upload_paper_file():
     st.header("上传论文文件")
     st.write("请上传您的论文文件。支持格式：PDF 或 Word 文件。")
     paper_file = st.file_uploader("选择论文文件", type=["pdf", "docx"])
-    
-    # 如果文件被上传，显示上传状态并进行进一步处理
-    if paper_file:
-        st.write("论文文件已上传")
-        # 这里添加处理论文文件的逻辑
-        # 你可以在这里进一步分析、提取论文内容等
-        # 例如，展示论文内容的标题、关键词、摘要等
-        st.write("论文内容分析...（可以进行进一步分析）")
-    else:
-        st.write("没有上传论文文件")
+    return paper_file
 
-# 显示论文研究方向分析
+# 论文的学科方向分析
 def display_paper_analysis():
     st.subheader("论文研究方向分析")
-    # 显示研究方向的占比分析，这里是模拟数据
+    # 模拟论文分析结果，这里应根据实际论文内容提取分析
     st.write("该论文的研究方向分析：")
-    st.write("1. 电力系统工程 60%")
-    st.write("2. 控制理论 30%")
-    st.write("3. 计算机科学 10%")
-    
-    # 显示分析后的建议会议或学科
-    st.write("建议匹配的会议：")
-    st.write("1. 电力系统与控制国际会议")
-    st.write("2. 计算机科学与人工智能国际会议")
+    st.write("1. 电力系统工程 60% - 论文涉及了PI控制策略及其在电力系统中的应用")
+    st.write("2. 控制理论 30% - 论文讨论了基于强化学习的PI控制策略")
+    st.write("3. 计算机科学 10% - 论文使用了计算机仿真来验证控制策略的有效性")
 
-# 主功能区，展示页面内容
+    # 根据学科分析的结果，推荐会议
+    st.write("推荐的会议：")
+    st.write("1. International Conference on Power Systems and Control (电力系统与控制国际会议) - 官网链接")
+    st.write("2. International Conference on AI in Control Systems (人工智能在控制系统中的应用会议) - 官网链接")
+
+# 计算剩余时间
+def calculate_days_left(cutoff_date):
+    return (cutoff_date - datetime.datetime.now().date()).days if pd.notna(cutoff_date) else "未知"
+
+# 显示进度条
+def show_progress_bar():
+    st.write("正在匹配论文与会议...")
+    for i in range(100):
+        st.progress(i + 1)
+        time.sleep(0.05)
+
+# 根据论文内容匹配会议
+def perform_matching():
+    # 论文研究方向分析
+    paper_direction = "电力系统工程, 控制理论, 计算机科学"
+    
+    # 假设从上传的会议文件中获得匹配会议的逻辑
+    conference_data = pd.read_excel('conference_file.xlsx')  # 假设上传了一个excel会议数据
+    
+    matching_conferences = []
+    for index, row in conference_data.iterrows():
+        # 简化：检查会议名是否包含符合条件的关键词
+        if 'Symposium' not in row['会议名']:
+            # 假设匹配的会议
+            matching_conferences.append({
+                "会议系列名与会议名": f"{row['会议系列名']} - {row['会议名']}",
+                "官网链接": row['官网链接'],
+                "动态出版标记": row['动态出版标记'],
+                "截稿时间": row['截稿时间'],
+                "剩余天数": calculate_days_left(row['截稿时间']),
+                "论文研究方向匹配": f"与{row['会议主题方向']}匹配"
+            })
+    
+    # 如果有匹配的会议，展示推荐的会议
+    if matching_conferences:
+        for conference in matching_conferences:
+            st.write(f"**会议推荐：{conference['会议系列名与会议名']}**")
+            st.write(f"官网链接: {conference['官网链接']}")
+            st.write(f"动态出版标记: {conference['动态出版标记']}")
+            st.write(f"截稿时间: {conference['截稿时间']} (距离截稿还有 {conference['剩余天数']} 天)")
+            st.write(f"匹配分析: {conference['论文研究方向匹配']}")
+    else:
+        st.write("没有找到完全匹配的会议，根据您的论文方向，推荐以下学科：")
+        st.write(f"推荐学科: {paper_direction}")
+        st.write("可以参考这些方向的其他会议。")
+
+# 主功能区
 def main():
     st.title("论文与会议匹配系统")
     
-    # 上传文件区域
-    upload_files()
-
-    # 模拟论文分析过程
-    st.write("开始论文分析与会议匹配...（具体逻辑根据你的需求进行实现）")
-
-    # 在这里展示论文的研究方向分析、匹配的会议等内容
-    display_paper_analysis()
-
-    # 在匹配结果后，提供用户交互
-    st.button("开始匹配", on_click=perform_matching)
-
-def perform_matching():
-    # 根据上传的文件和需求进行匹配的逻辑处理
-    # 这个是你处理论文和会议匹配的地方
-    st.write("开始匹配会议...")
-
-    # 这里可以添加基于论文分析结果的会议推荐逻辑
-    st.write("根据论文的研究方向，推荐以下会议：")
-    st.write("1. 电力系统与控制国际会议")
-    st.write("2. 计算机科学与人工智能国际会议")
+    # 上传会议文件区
+    conference_file = upload_conference_file()
+    
+    # 上传论文文件区
+    paper_file = upload_paper_file()
+    
+    # 如果论文文件上传了，进行进一步的分析与匹配
+    if paper_file:
+        display_paper_analysis()
+        perform_matching()
+    else:
+        st.write("请先上传论文文件进行匹配。")
 
 # 执行主功能
 if __name__ == "__main__":
