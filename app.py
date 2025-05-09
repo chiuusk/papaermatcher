@@ -21,33 +21,42 @@ if 'paper_file' not in st.session_state:
 st.header("① 上传会议文件（Excel）")
 conference_uploaded = st.file_uploader("包含字段：会议名称、会议方向、会议主题方向、细分关键词、动态出版标记、截稿时间、官网链接", type=["xlsx"], key="conf_upload")
 
-if st.button("清除会议文件"):
+# 清除会议文件
+def clear_conference_file():
     st.session_state.conference_file = None
-    conference_uploaded = None
+    st.session_state.conference_uploaded = None
 
-if conference_uploaded:
+if st.button("清除会议文件"):
+    clear_conference_file()
+
+if conference_uploaded or st.session_state.conference_file:
     try:
-        conf_df = pd.read_excel(conference_uploaded, engine='openpyxl')
+        if not st.session_state.conference_file:
+            st.session_state.conference_file = pd.read_excel(conference_uploaded, engine='openpyxl')
+        
         required_cols = ['会议名称', '会议方向', '会议主题方向', '细分关键词', '动态出版标记', '截稿时间', '官网链接']
         for col in required_cols:
-            if col not in conf_df.columns:
+            if col not in st.session_state.conference_file.columns:
                 st.error(f"❌ 缺少必要字段：{col}")
                 st.stop()
+
         st.success("✅ 会议文件上传成功")
-        st.session_state.conference_file = conf_df
     except Exception as e:
         st.error(f"会议文件读取失败：{e}")
-        st.stop()
 
 # 上传论文文件（Word 或 PDF）
 st.header("② 上传论文文件（Word 或 PDF）")
 paper_uploaded = st.file_uploader("上传论文文件（PDF 或 Word）", type=["pdf", "docx"], key="paper_upload")
 
-if st.button("清除论文文件"):
+# 清除论文文件
+def clear_paper_file():
     st.session_state.paper_file = None
-    paper_uploaded = None
+    st.session_state.paper_uploaded = None
 
-if paper_uploaded:
+if st.button("清除论文文件"):
+    clear_paper_file()
+
+if paper_uploaded or st.session_state.paper_file:
     try:
         def extract_text(file):
             if file.name.endswith(".pdf"):
@@ -60,8 +69,7 @@ if paper_uploaded:
                 return ""
 
         paper_text = extract_text(paper_uploaded)
-
-        # 简单分段提取摘要、关键词、结论
+        
         def extract_sections(text):
             text_lower = text.lower()
             abstract, keywords, conclusion = "", "", ""
