@@ -7,7 +7,7 @@ import re
 import nltk
 from sentence_transformers import SentenceTransformer, util
 
-nltk.download('punkt')
+nltk.download('punkt')  # 下载 punkt 分词数据
 from nltk.tokenize import sent_tokenize
 
 # 将模型加载到 CPU
