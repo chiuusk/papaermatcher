@@ -1,9 +1,7 @@
 import streamlit as st
 import pandas as pd
 import datetime
-import io
 from sentence_transformers import SentenceTransformer, util
-import re
 
 st.set_page_config(layout="wide")
 st.title("📄 论文智能匹配推荐会议系统")
@@ -37,8 +35,8 @@ if conference_file and st.session_state.conference_df is None:
         conf_df = pd.read_excel(conference_file)
         conf_df.columns = conf_df.columns.str.strip()
         # 字段标准化
-        conf_df.rename(columns=lambda x: x.strip().replace("会议名称", "会议名").replace("截稿日期", "截稿时间").replace("细分方向", "细分关键词"), inplace=True)
-        required_fields = {"会议系列名", "会议名", "会议方向", "会议主题方向", "细分关键词", "官网链接", "截稿时间", "是否动态出版"}
+        conf_df.rename(columns=lambda x: x.strip().replace("会议名称", "会议名").replace("截稿日期", "截稿时间").replace("细分方向", "细分关键词").replace("是否动态出版", "动态出版标记"), inplace=True)
+        required_fields = {"会议系列名", "会议名", "会议方向", "会议主题方向", "细分关键词", "官网链接", "截稿时间", "动态出版标记"}
         if not required_fields.issubset(conf_df.columns):
             st.warning(f"❌ 缺少必要字段：{required_fields - set(conf_df.columns)}")
         else:
@@ -128,7 +126,7 @@ if paper_file and st.session_state.conference_df is not None:
                     st.markdown(f"- 🧩 **细分关键词：** {conf['细分关键词']}")
                     st.markdown(f"- 🌍 **会议官网：** [{conf['官网链接']}]({conf['官网链接']})")
                     st.markdown(f"- 🕒 **截稿时间：** {conf['截稿时间'].strftime('%Y-%m-%d')}（{days_left}）")
-                    st.markdown(f"- 📦 **动态出版：** {'是' if conf['是否动态出版']=='是' else '否'}")
+                    st.markdown(f"- 📦 **动态出版：** {'是' if conf['动态出版标记']=='是' else '否'}")
                     st.markdown(f"- ✅ **匹配说明：** 此会议主题与论文在 `{subject_result[0][0]}` 方向高度相关。关键词“{subject_result[0][0]}”在论文内容中频繁出现，匹配度高。")
 
                 progress.progress(100)
