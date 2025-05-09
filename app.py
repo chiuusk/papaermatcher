@@ -1,79 +1,113 @@
 import streamlit as st
 import pandas as pd
 import datetime
-from PyPDF2 import PdfReader
-from sklearn.feature_extraction.text import TfidfVectorizer
 import requests
+from bs4 import BeautifulSoup
+from PyPDF2 import PdfReader
+from docx import Document
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
-# 设置页面配置
-st.set_page_config(page_title="论文会议匹配推荐", layout="wide")
-st.title("📚 论文会议匹配推荐系统")
+# 页面配置
+st.set_page_config(page_title="论文会议智能推荐", layout="wide")
+st.title("📚 论文会议智能推荐系统")
 
-# 文件上传
-st.sidebar.header("1️⃣ 上传论文 PDF")
-pdf_file = st.sidebar.file_uploader("上传论文 PDF 文件", type=["pdf"])
+# 文件上传部分
+st.sidebar.header("1️⃣ 上传论文文件（PDF 或 Word）")
+paper_file = st.sidebar.file_uploader("上传 PDF 或 Word 文件", type=["pdf", "docx"])
 
-st.sidebar.header("2️⃣ 上传会议列表 Excel")
-conf_file = st.sidebar.file_uploader("上传会议 Excel 文件", type=["xlsx"])
+st.sidebar.header("2️⃣ 上传会议 Excel 文件")
+conf_file = st.sidebar.file_uploader("上传会议列表文件（Excel）", type=["xlsx"])
 
-# 设置匹配参数
-st.sidebar.header("3️⃣ 设置匹配参数")
-days_today = datetime.datetime.now()
+# 获取当前时间
+now = datetime.datetime.now()
 
-# 文件上传后处理
-if pdf_file and conf_file:
-    with st.spinner('正在处理文件，请稍候...'):
+# 提取论文文本
+def extract_text_from_file(uploaded_file):
+    text = ""
+    if uploaded_file.name.endswith(".pdf"):
+        reader = PdfReader(uploaded_file)
+        for page in reader.pages[:2]:
+            text += page.extract_text() or ""
+    elif uploaded_file.name.endswith(".docx"):
+        doc = Document(uploaded_file)
+        for para in doc.paragraphs:
+            text += para.text + "\n"
+    return text
+
+# 从会议官网提取关键词
+def extract_keywords_from_url(url):
+    try:
+        response = requests.get(url, timeout=10)
+        soup = BeautifulSoup(response.text, "html.parser")
+        text = soup.get_text()
+        return text
+    except:
+        return ""
+
+# 主逻辑
+if paper_file and conf_file:
+    with st.spinner("正在分析论文与会议匹配度..."):
         try:
-            # 读取 PDF 文件
-            pdf_reader = PdfReader(pdf_file)
-            text = ""
-            for page in pdf_reader.pages[:2]:  # 提取前两页
-                text += page.extract_text() or ""
-            
-            # 提取论文关键词
-            vectorizer = TfidfVectorizer(stop_words='english', max_features=10)
-            tfidf = vectorizer.fit_transform([text])
-            paper_keywords = vectorizer.get_feature_names_out()
+            # 1. 读取论文内容
+            paper_text = extract_text_from_file(paper_file)
 
-            st.markdown("### 📄 论文提取信息")
-            st.write("**自动识别关键词：**", ", ".join(paper_keywords))
+            # 提取关键词
+            tfidf_vec = TfidfVectorizer(stop_words='english', max_features=10)
+            paper_tfidf = tfidf_vec.fit_transform([paper_text])
+            paper_keywords = tfidf_vec.get_feature_names_out()
 
-            # 读取会议数据
+            st.markdown("### 📄 自动提取的论文关键词")
+            st.write(", ".join(paper_keywords))
+
+            # 2. 读取会议数据
             df = pd.read_excel(conf_file)
 
-            # 确认会议数据是否包含 "Keywords" 列
-            if 'Keywords' not in df.columns:
-                st.error("会议数据中缺少 'Keywords' 列，请检查文件格式。")
+            # 检查必要字段
+            required_columns = ["会议名称", "当前状态", "官网链接", "会议地点", "会议方向", "会议主题方向", "细分关键词", "截稿时间"]
+            if not all(col in df.columns for col in required_columns):
+                st.error(f"Excel 缺少必要字段，请确保包含：{', '.join(required_columns)}")
             else:
-                conf_keywords = df['Keywords']  # 获取会议的关键词列
-                st.write("**会议关键词：**", ", ".join(conf_keywords.head()))
+                # 3. 过滤条件
+                df = df[
+                    (df["当前状态"] == "征稿阶段") &
+                    (df["官网链接"].notna()) &
+                    (df["会议地点"].notna())
+                ]
 
-                # 计算论文和会议之间的相似度
-                vectorizer_conf = TfidfVectorizer(stop_words='english')
-                tfidf_conf = vectorizer_conf.fit_transform(conf_keywords.astype(str))
-                paper_tfidf = vectorizer_conf.transform([text])
-                similarity_scores = cosine_similarity(paper_tfidf, tfidf_conf)
+                # 构建会议关键词文本
+                df["综合关键词"] = df[["会议方向", "会议主题方向", "细分关键词"]].astype(str).agg(" ".join, axis=1)
 
-                # 显示相似度排序的会议
-                st.markdown("### 🔍 匹配结果")
-                similarity_df = pd.DataFrame(similarity_scores.T, columns=["相似度"], index=df["Conference Name"])
-                similarity_df = similarity_df.sort_values(by="相似度", ascending=False)
+                # 访问官网内容并附加
+                website_texts = []
+                for link in df["官网链接"]:
+                    website_texts.append(extract_keywords_from_url(link))
+                df["官网内容"] = website_texts
 
-                st.write(similarity_df)
+                # 合并关键词和网页文本做匹配
+                df["匹配文本"] = df["综合关键词"] + " " + df["官网内容"]
 
-                st.success('文件处理完成！')
+                # 计算相似度
+                conf_tfidf = tfidf_vec.transform(df["匹配文本"])
+                similarity = cosine_similarity(paper_tfidf, conf_tfidf).flatten()
+                df["匹配度"] = similarity
+
+                # 距离截稿时间
+                df["距离截稿"] = df["截稿时间"].apply(lambda d: (pd.to_datetime(d) - now).days if pd.notnull(d) else None)
+
+                # 推荐前2名
+                top_matches = df.sort_values(by="匹配度", ascending=False).head(2)
+
+                st.markdown("### 🏆 推荐会议")
+                for _, row in top_matches.iterrows():
+                    st.markdown(f"""
+                    #### {row['会议名称']}
+                    - **官网链接：** [{row['官网链接']}]({row['官网链接']})
+                    - **匹配理由：** 关键词内容相符（匹配度: {row['匹配度']:.2f}）
+                    - **距离截稿时间：** {row['距离截稿']} 天
+                    """)
+
+                st.success("推荐完成！")
 
         except Exception as e:
-            st.error(f"文件处理时出错: {e}")
-
-# 会议爬虫示例（可选）
-st.sidebar.header("4️⃣ 可选 - 会议爬虫")
-meeting_url = st.sidebar.text_input("输入会议网站URL（可选）")
-
-if meeting_url:
-    try:
-        response = requests.get(meeting_url, timeout=10)  # 设置请求超时为10秒
-        response.raise_for_status()  # 如果状态码不为 200，会抛出异常
-        st.write("成功爬取网站数据")
-    except requests.exceptions.RequestException as e:
-        st.error(f"爬虫请求失败: {e}")
+            st.error(f"运行出错：{e}")
