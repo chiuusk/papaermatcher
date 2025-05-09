@@ -63,8 +63,10 @@ if paper_file and conf_file:
             # 2. 读取会议数据
             df = pd.read_excel(conf_file)
 
-            # 检查必要字段
-            required_columns = ["会议名称", "当前状态", "官网链接", "会议地点", "会议方向", "会议主题方向", "细分关键词", "截稿时间"]
+            # 列名映射
+            df = df.rename(columns={"会议名": "会议名称"})
+
+            required_columns = ["会议系列名", "会议名称", "当前状态", "官网链接", "会议地点", "会议方向", "会议主题方向", "细分关键词", "截稿时间"]
             if not all(col in df.columns for col in required_columns):
                 st.error(f"Excel 缺少必要字段，请确保包含：{', '.join(required_columns)}")
             else:
@@ -101,7 +103,7 @@ if paper_file and conf_file:
                 st.markdown("### 🏆 推荐会议")
                 for _, row in top_matches.iterrows():
                     st.markdown(f"""
-                    #### {row['会议名称']}
+                    #### {row['会议系列名']} - {row['会议名称']}
                     - **官网链接：** [{row['官网链接']}]({row['官网链接']})
                     - **匹配理由：** 关键词内容相符（匹配度: {row['匹配度']:.2f}）
                     - **距离截稿时间：** {row['距离截稿']} 天
