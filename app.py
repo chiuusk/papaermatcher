@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import datetime
+import time  # 添加 time 模块
 from PyPDF2 import PdfReader
 import docx
 
@@ -26,8 +27,6 @@ def read_word(file):
 
 # 判断论文学科方向
 def analyze_paper_subject(text):
-    # 这里可以添加一些关键词进行学科方向分析
-    # 假设根据论文题目、摘要和关键词来判断学科方向
     subjects = {
         '电气工程': ['PWM Rectifier', 'PI Control', 'Reinforcement Learning', 'Power Electronics', 'Control Theory'],
         '计算机科学': ['Machine Learning', 'Artificial Intelligence', 'Neural Networks', 'Data Science'],
@@ -42,7 +41,6 @@ def analyze_paper_subject(text):
         if match_count > 0:
             paper_subjects[subject] = match_count
     
-    # 返回分析结果：学科方向及其匹配度
     total_matches = sum(paper_subjects.values())
     subject_percentages = {subject: (matches / total_matches) * 100 for subject, matches in paper_subjects.items()}
     
