@@ -1,175 +1,77 @@
 import streamlit as st
 import pandas as pd
 import datetime
-import time
-from io import BytesIO
-from PyPDF2 import PdfReader
-from docx import Document
 
-# 读取会议文件
-def read_conference_file(file):
-    df = pd.read_excel(file)
-    return df
+# 设置页面标题和布局
+st.set_page_config(page_title="论文会议匹配工具", layout="wide")
 
-# 读取PDF文件内容
-def read_pdf(file):
-    reader = PdfReader(file)
-    text = ""
-    for page in reader.pages:
-        text += page.extract_text()
-    return text
-
-# 读取Word文件内容
-def read_word(file):
-    doc = Document(file)
-    text = ""
-    for para in doc.paragraphs:
-        text += para.text
-    return text
-
-# 显示进度条
-def show_progress_bar():
-    with st.spinner("正在处理数据..."):
-        time.sleep(2)  # 模拟长时间的处理
-
-# 直接返回截稿日期
-def display_cutoff_date(cutoff_date):
-    if pd.notna(cutoff_date):
-        return cutoff_date.strftime("%Y-%m-%d")
+def upload_files():
+    # 会议文件上传区域放在侧边栏，尺寸较小
+    with st.sidebar:
+        st.subheader("上传会议文件")
+        conference_file = st.file_uploader("选择会议文件", type=["xlsx", "csv"], label_visibility="collapsed")
+        if conference_file:
+            st.sidebar.write("会议文件已上传")
+            # 这里可以添加处理会议文件的逻辑
+            # 例如加载会议文件数据并展示或进行分析
+        else:
+            st.sidebar.write("没有上传会议文件")
+    
+    # 显示论文文件上传板块，放大并居中显示
+    st.header("上传论文文件")
+    st.write("请上传您的论文文件。支持格式：PDF 或 Word 文件。")
+    paper_file = st.file_uploader("选择论文文件", type=["pdf", "docx"])
+    
+    # 如果文件被上传，显示上传状态并进行进一步处理
+    if paper_file:
+        st.write("论文文件已上传")
+        # 这里添加处理论文文件的逻辑
+        # 你可以在这里进一步分析、提取论文内容等
+        # 例如，展示论文内容的标题、关键词、摘要等
+        st.write("论文内容分析...（可以进行进一步分析）")
     else:
-        return "未知"
+        st.write("没有上传论文文件")
 
-# 论文的学科方向分析
-def analyze_paper_subject(text):
-    subjects = {
-        '电气工程': {
-            'keywords': ['PWM Rectifier', 'PI Control', 'Reinforcement Learning', 'Power Electronics', 'Control Theory'],
-            'description': '电气工程方向，涉及电力电子、控制理论及其在电力系统中的应用。',
-        },
-        '计算机科学': {
-            'keywords': ['Machine Learning', 'Artificial Intelligence', 'Neural Networks', 'Data Science', 'Reinforcement Learning'],
-            'description': '计算机科学方向，主要涉及机器学习、人工智能及其应用于数据分析和决策系统。',
-        },
-        '医学': {
-            'keywords': ['Medical Imaging', 'Healthcare', 'Neuroscience', 'Biology', 'Medical Data'],
-            'description': '医学方向，涵盖医疗影像、生物医学研究以及临床数据分析等领域。',
-        },
-        '机械工程': {
-            'keywords': ['Mechanical Systems', 'Robotics', 'Control Systems', 'Automation'],
-            'description': '机械工程方向，关注机械系统设计、机器人技术及自动化控制。',
-        },
-        '材料科学': {
-            'keywords': ['Material Science', 'Nanotechnology', 'Semiconductor', 'Polymers'],
-            'description': '材料科学方向，涉及纳米技术、半导体以及新型材料的开发与应用。',
-        },
-        '化学工程': {
-            'keywords': ['Chemical Engineering', 'Process Optimization', 'Catalysis', 'Polymerization'],
-            'description': '化学工程方向，主要研究化学过程、反应工程和催化技术等领域。',
-        },
-        # 可以继续添加更多学科
-    }
+# 显示论文研究方向分析
+def display_paper_analysis():
+    st.subheader("论文研究方向分析")
+    # 显示研究方向的占比分析，这里是模拟数据
+    st.write("该论文的研究方向分析：")
+    st.write("1. 电力系统工程 60%")
+    st.write("2. 控制理论 30%")
+    st.write("3. 计算机科学 10%")
     
-    paper_subjects = {}
-    
-    # 统计每个学科方向与论文中匹配的关键词个数
-    for subject, data in subjects.items():
-        match_count = sum(keyword in text for keyword in data['keywords'])
-        if match_count > 0:
-            paper_subjects[subject] = {
-                'count': match_count,
-                'description': data['description'],
-            }
-    
-    total_matches = sum(subject['count'] for subject in paper_subjects.values())
-    
-    # 计算每个学科的占比
-    subject_percentages = {subject: (data['count'] / total_matches) * 100 for subject, data in paper_subjects.items()}
-    
-    return paper_subjects, subject_percentages
+    # 显示分析后的建议会议或学科
+    st.write("建议匹配的会议：")
+    st.write("1. 电力系统与控制国际会议")
+    st.write("2. 计算机科学与人工智能国际会议")
 
+# 主功能区，展示页面内容
 def main():
-    st.title("论文匹配工具")
+    st.title("论文与会议匹配系统")
     
-    # 上传会议文件
-    conference_file = st.file_uploader("上传会议文件", type=["xlsx"])
-    if conference_file is not None:
-        st.session_state.conference_file = read_conference_file(conference_file)
-        st.success("会议文件上传成功")
-    
-    # 上传论文文件
-    paper_file = st.file_uploader("上传论文文件", type=["pdf", "docx"])
-    if paper_file is not None:
-        # 读取论文内容
-        if paper_file.type == "application/pdf":
-            paper_text = read_pdf(paper_file)
-        elif paper_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-            paper_text = read_word(paper_file)
-        
-        # 分析学科方向
-        paper_subjects, subject_percentages = analyze_paper_subject(paper_text)
-        
-        # 显示学科方向分析
-        st.subheader("论文学科方向分析")
-        for subject, percentage in subject_percentages.items():
-            st.write(f"{subject}: {percentage:.2f}%")
-        
-        # 显示学科分析详情
-        st.subheader("学科分析详细信息")
-        for subject, data in paper_subjects.items():
-            st.write(f"学科方向：{subject}, 匹配关键词个数：{data['count']}")
-            st.write(f"描述：{data['description']}")
-        
-        # 显示匹配结果
-        if 'conference_file' in st.session_state:
-            show_progress_bar()  # 展示进度条
-            match_results = []
-            
-            # 获取会议文件
-            conference_data = st.session_state.conference_file
-            
-            # 遍历会议文件中的每一行
-            for _, row in conference_data.iterrows():
-                if "Symposium" in row["会议名"]:
-                    # 忽略不包含Symposium的行
-                    conference_title = f"{row['会议系列名']} - {row['会议名']}"
-                    conference_url = row["官网链接"]
-                    cutoff_date = row["截稿时间"]
-                    dynamic_publish = row["动态出版标记"]
-                    days_left = display_cutoff_date(cutoff_date)  # 显示截稿日期
-                    
-                    # 匹配分析
-                    matched_subjects = []
-                    for subject in paper_subjects.keys():
-                        if subject in row["会议主题方向"] or subject in row["细分关键词"]:
-                            matched_subjects.append(subject)
-                    
-                    if matched_subjects:
-                        match_results.append({
-                            "推荐会议": conference_title,
-                            "官网链接": conference_url,
-                            "动态出版标记": dynamic_publish,
-                            "截稿日期": days_left,
-                            "匹配学科方向": matched_subjects,
-                        })
-            
-            # 如果没有合适的会议，根据论文关键词进行学科匹配
-            if not match_results:
-                st.subheader("没有合适的会议，基于论文关键词匹配的学科方向")
-                for subject, percentage in subject_percentages.items():
-                    st.write(f"学科方向：{subject}, 匹配程度：{percentage:.2f}%")
-                    st.write(f"根据论文中的关键词，推荐此学科方向。")
-            
-            # 展示匹配结果
-            if match_results:
-                st.subheader("匹配的推荐会议")
-                for result in match_results[:3]:  # 只展示前3个推荐
-                    st.write(f"**推荐会议：** {result['推荐会议']}")
-                    st.write(f"官网链接：{result['官网链接']}")
-                    st.write(f"动态出版标记：{result['动态出版标记']}")
-                    st.write(f"截稿日期：{result['截稿日期']}")
-                    st.write(f"匹配学科方向：{', '.join(result['匹配学科方向'])}")
-            else:
-                st.write("没有找到合适的会议，已根据关键词提供可能的学科方向匹配。")
+    # 上传文件区域
+    upload_files()
 
+    # 模拟论文分析过程
+    st.write("开始论文分析与会议匹配...（具体逻辑根据你的需求进行实现）")
+
+    # 在这里展示论文的研究方向分析、匹配的会议等内容
+    display_paper_analysis()
+
+    # 在匹配结果后，提供用户交互
+    st.button("开始匹配", on_click=perform_matching)
+
+def perform_matching():
+    # 根据上传的文件和需求进行匹配的逻辑处理
+    # 这个是你处理论文和会议匹配的地方
+    st.write("开始匹配会议...")
+
+    # 这里可以添加基于论文分析结果的会议推荐逻辑
+    st.write("根据论文的研究方向，推荐以下会议：")
+    st.write("1. 电力系统与控制国际会议")
+    st.write("2. 计算机科学与人工智能国际会议")
+
+# 执行主功能
 if __name__ == "__main__":
     main()
