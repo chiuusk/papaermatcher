@@ -39,12 +39,13 @@ def extract_title(text):
 # 提取关键词（通过正则查找关键词）
 def extract_keywords(text):
     keywords = []
-    keyword_pattern = r"(?<=Keywords?:\s)(.*?)(?=\n)"  # 找到关键词字段
+    keyword_pattern = r"Keywords?:\s*(.*?)(?:\n|$)"  # 找到关键词字段
     match = re.search(keyword_pattern, text, re.IGNORECASE)
     if match:
         keywords = match.group(1).split(",")  # 关键词之间以逗号分隔
         keywords = [kw.strip() for kw in keywords]
     return keywords
+
 
 # 论文学科方向分析
 def analyze_subjects(text):
