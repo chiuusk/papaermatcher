@@ -3,7 +3,7 @@ import pandas as pd
 import datetime
 import io
 import time
-from googletrans import Translator  # 引入翻译库
+from deep_translator import GoogleTranslator  # 使用 deep-translator 进行翻译
 import fitz  # 用于解析pdf文件
 import docx  # 用于解析docx文件
 import re
@@ -55,11 +55,10 @@ def extract_title_and_keywords(text):
     keywords = match.group(1) if match else "无关键词"
     return title, keywords
 
-# 翻译函数
+# 翻译函数（使用 deep-translator）
 def translate_text(text):
-    translator = Translator()
-    translation = translator.translate(text, src='zh-cn', dest='en')
-    return translation.text
+    translation = GoogleTranslator(source='zh', target='en').translate(text)
+    return translation
 
 # 论文文件学科分析
 def analyze_paper_subject(paper_file):
