@@ -6,6 +6,6 @@ python-docx
 openpyxl
 torch
 PyPDF2
-PyMuPDF
+PyMuPDF==1.23.9  # 这是一个较新的稳定版本，你可以尝试其他版本
 requests
 deep-translator
