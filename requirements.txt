@@ -7,3 +7,4 @@ openpyxl
 torch
 PyPDF2
 python-docx
+PyMuPDF
