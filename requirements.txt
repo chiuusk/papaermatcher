@@ -9,5 +9,3 @@ PyPDF2
 PyMuPDF
 requests
 deep-translator
-docx
-fitz
