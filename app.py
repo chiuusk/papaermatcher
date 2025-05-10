@@ -1,23 +1,31 @@
 import streamlit as st
 import pandas as pd
 import os
-import fitz  # PyMuPDF，用于PDF解析
-import docx  # 用于解析Word文档
+import fitz  # PyMuPDF 用于解析 PDF
+import docx  # 用于解析 Word 文档
 
 # 论文内容提取功能
 def extract_text_from_pdf(file):
-    doc = fitz.open(file)
-    text = ""
-    for page in doc:
-        text += page.get_text()
-    return text
+    try:
+        doc = fitz.open(file)
+        text = ""
+        for page in doc:
+            text += page.get_text()
+        return text
+    except Exception as e:
+        st.error(f"PDF 解析失败: {e}")
+        return ""
 
 def extract_text_from_docx(file):
-    doc = docx.Document(file)
-    text = ""
-    for para in doc.paragraphs:
-        text += para.text
-    return text
+    try:
+        doc = docx.Document(file)
+        text = ""
+        for para in doc.paragraphs:
+            text += para.text
+        return text
+    except Exception as e:
+        st.error(f"Word 解析失败: {e}")
+        return ""
 
 def extract_paper_content(paper_file):
     if paper_file is not None:
@@ -27,13 +35,12 @@ def extract_paper_content(paper_file):
         elif file_extension == "docx":
             return extract_text_from_docx(paper_file)
         else:
-            st.error("Unsupported file format. Please upload a PDF or Word document.")
+            st.error("不支持的文件格式，请上传 PDF 或 Word 文档。")
             return None
     return None
 
 # 学科分析函数（简单的关键词分析）
 def analyze_paper_subject(title, abstract, keywords):
-    # 示例关键词，您可以根据需要扩展
     science_keywords = {
         "computer science": ["algorithm", "AI", "machine learning", "data", "computer", "programming"],
         "biology": ["DNA", "gene", "biotechnology", "protein", "cell", "genetics"],
@@ -53,22 +60,25 @@ def analyze_paper_subject(title, abstract, keywords):
         sorted_results = sorted(analysis_results.items(), key=lambda x: x[1], reverse=True)
         return sorted_results[0]  # 返回最匹配的学科方向
     else:
-        return ("No clear subject direction identified", "N/A")
+        return ("未能识别明确的学科方向", "N/A")
 
 # 文件上传和分析
 def main():
     st.title("论文与会议匹配工具")
-
+    
     # 上传会议文件区域
-    conference_file = st.file_uploader("上传会议文件 (Excel)", type=["xlsx"], label_visibility="collapsed")
+    st.subheader("上传会议文件 (Excel)")
+    conference_file = st.file_uploader("上传会议文件", type=["xlsx"])
     conference_data = None
 
     if conference_file:
         conference_data = pd.read_excel(conference_file)
         st.write("会议文件上传成功")
-
+    
     # 上传论文文件区域
-    paper_file = st.file_uploader("上传论文文件 (PDF 或 Word)", type=["pdf", "docx"], label_visibility="collapsed")
+    st.subheader("上传论文文件 (PDF 或 Word)")
+    paper_file = st.file_uploader("上传论文文件", type=["pdf", "docx"])
+    
     if paper_file:
         paper_content = extract_paper_content(paper_file)
         if paper_content:
@@ -101,8 +111,6 @@ def main():
                         st.write(f"- {match}")
                 else:
                     st.write("未找到完全匹配的会议，基于学科方向进行推荐。")
-
-                    # 模糊匹配推荐（以学科方向为基础）
                     st.write("推荐会议（模糊匹配）：")
                     for index, row in conference_data.iterrows():
                         conference_name = row['会议名称']
