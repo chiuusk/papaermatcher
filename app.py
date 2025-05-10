@@ -1,123 +1,116 @@
 import streamlit as st
-import os
-import fitz  # PyMuPDF
-import docx
+import pandas as pd
 import re
+import jieba
+import jieba.analyse
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from googletrans import Translator
 
-# ----------------------------
-# PDF & Word 文本提取函数
-# ----------------------------
-def extract_text_from_pdf(file):
-    text = ""
-    with fitz.open(stream=file.read(), filetype="pdf") as doc:
-        for page in doc:
-            text += page.get_text()
-    return text
+st.set_page_config(page_title="会议匹配助手", layout="wide")
 
-def extract_text_from_word(file):
-    doc = docx.Document(file)
-    return "\n".join([para.text for para in doc.paragraphs])
+if 'conference_df' not in st.session_state:
+    st.session_state.conference_df = None
 
-# ----------------------------
-# 简单标题、关键词、摘要提取逻辑
-# ----------------------------
-def extract_title(text):
-    # 假设标题为第一段最长句子
-    lines = [line.strip() for line in text.split("\n") if line.strip()]
-    if lines:
-        return max(lines[:5], key=len)
-    return "未识别到标题"
+translator = Translator()
 
-def extract_keywords(text):
-    # 规则匹配：关键词/关键字：xxx
-    match = re.search(r"(关键词|关键字|Keywords|Key words)\s*[:：]\s*(.+)", text, re.IGNORECASE)
-    if match:
-        raw_keywords = match.group(2)
-        return [kw.strip() for kw in re.split("[,，;；]", raw_keywords)]
-    return []
+def extract_title_abstract_keywords(text):
+    lines = text.splitlines()
+    title, abstract, keywords = "", "", ""
+    title_found, abstract_found, keywords_found = False, False, False
 
-def extract_abstract(text):
-    # 匹配“摘要”或“Abstract”段落
-    match = re.search(r"(摘要|Abstract)[\s：:]*([\s\S]{100,800})", text)
-    if match:
-        abstract = match.group(2).strip()
-        # 截断至第一个空行或句号
-        abstract = re.split(r"\n|\。", abstract)[0].strip()
-        return abstract
-    return "未识别到摘要"
+    for i, line in enumerate(lines):
+        clean_line = line.strip()
+        if not title_found and 5 < len(clean_line) < 200:
+            title = clean_line
+            title_found = True
+            continue
 
-# ----------------------------
-# 翻译函数（模拟）
-# ----------------------------
-def translate_text(text):
-    # 模拟翻译（实际你可以接入百度翻译或 OpenAI）
-    return f"[英] {text}"
+        if not abstract_found and re.search(r'摘要|Abstract', clean_line, re.IGNORECASE):
+            abstract_lines = []
+            for j in range(i+1, len(lines)):
+                l = lines[j].strip()
+                if re.search(r'关键词|关键字|Keywords|Index Terms', l, re.IGNORECASE):
+                    break
+                abstract_lines.append(l)
+            abstract = " ".join(abstract_lines).strip()
+            abstract_found = True
+            continue
 
-# ----------------------------
-# 学科方向分析（简化示例）
-# ----------------------------
-def analyze_paper_subject(text):
-    text_lower = text.lower()
-    subjects = []
-    if "machine learning" in text_lower or "深度学习" in text_lower:
-        subjects.append(("人工智能", 0.8))
-    if "wireless" in text_lower or "5g" in text_lower:
-        subjects.append(("通信工程", 0.6))
-    if "biology" in text_lower or "癌症" in text_lower:
-        subjects.append(("生物医学", 0.7))
-    if not subjects:
-        subjects.append(("综合类", 0.5))
-    return subjects
+        if not keywords_found and re.search(r'关键词|关键字|Keywords|Index Terms', clean_line, re.IGNORECASE):
+            keywords = re.sub(r'(关键词|关键字|Keywords|Index Terms)[:：]?', '', clean_line, flags=re.IGNORECASE).strip()
+            keywords_found = True
+            continue
 
-# ----------------------------
-# Streamlit 页面逻辑
-# ----------------------------
-st.set_page_config(page_title="论文智能提取与会议匹配", layout="wide")
-st.title("📄 论文内容提取助手")
+    return title, abstract, keywords
 
-uploaded_file = st.file_uploader("上传论文文件（支持 PDF / Word）", type=["pdf", "docx"])
-
-if uploaded_file:
+def translate_text(text, src='auto', dest='en'):
     try:
-        if uploaded_file.type == "application/pdf":
-            raw_text = extract_text_from_pdf(uploaded_file)
-        elif uploaded_file.type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/msword"]:
-            raw_text = extract_text_from_word(uploaded_file)
+        return translator.translate(text, src=src, dest=dest).text
+    except Exception:
+        return text
+
+def analyze_subject_direction(text, top_k=5):
+    return jieba.analyse.extract_tags(text, topK=top_k, withWeight=True)
+
+def match_conference(paper_text, conference_df):
+    tfidf = TfidfVectorizer()
+    corpus = [paper_text] + conference_df["简介"].fillna("").tolist()
+    tfidf_matrix = tfidf.fit_transform(corpus)
+    cosine_sim = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:]).flatten()
+    conference_df["匹配分数"] = cosine_sim
+    return conference_df.sort_values(by="匹配分数", ascending=False).head(5)
+
+# 页面布局
+st.title("📌 论文智能匹配会议推荐工具")
+
+col1, col2 = st.columns([1, 2])
+
+with col1:
+    st.header("📅 上传会议文件")
+    conf_file = st.file_uploader("上传会议Excel文件", type=["xls", "xlsx"], key="conf")
+    if conf_file:
+        st.session_state.conference_df = pd.read_excel(conf_file)
+        st.success("✅ 会议文件上传成功")
+
+with col2:
+    st.header("📄 上传论文文件")
+    paper_file = st.file_uploader("上传论文（TXT格式）", type=["txt"], key="paper")
+    if paper_file:
+        paper_text = paper_file.read().decode("utf-8")
+        title, abstract, keywords = extract_title_abstract_keywords(paper_text)
+
+        if not (title or abstract):
+            st.error("❌ 无法识别标题或摘要，请检查论文格式。")
         else:
-            st.error("不支持的文件类型")
-            st.stop()
-        
-        st.success("✅ 文本提取成功")
+            st.subheader("📋 提取内容结构")
+            st.markdown(f"**标题识别：** {title}")
+            st.markdown(f"**摘要识别：** {abstract}")
+            st.markdown(f"**关键词识别：** {keywords}")
 
-        # 提取结构信息
-        title = extract_title(raw_text)
-        keywords = extract_keywords(raw_text)
-        abstract = extract_abstract(raw_text)
+            # 翻译
+            title_en = translate_text(title)
+            abstract_en = translate_text(abstract)
+            keywords_en = translate_text(keywords)
 
-        title_en = translate_text(title)
-        keywords_en = [translate_text(k) for k in keywords]
-        abstract_en = translate_text(abstract)
+            st.subheader("🌐 中英文对照")
+            st.markdown(f"- **标题**: {title}  \n  **Title**: {title_en}")
+            st.markdown(f"- **摘要**: {abstract}  \n  **Abstract**: {abstract_en}")
+            st.markdown(f"- **关键词**: {keywords}  \n  **Keywords**: {keywords_en}")
 
-        # 页面展示
-        st.subheader("📌 标题 / Title")
-        st.write(f"**原文：** {title}")
-        st.write(f"**翻译：** {title_en}")
+            st.subheader("📊 学科方向关键词分析")
+            combined_text = f"{title} {abstract} {keywords}"
+            directions = analyze_subject_direction(combined_text)
+            for word, score in directions:
+                st.write(f"- `{word}`（权重: {round(score, 3)}）")
 
-        st.subheader("🧠 摘要 / Abstract")
-        st.write(f"**原文：** {abstract}")
-        st.write(f"**翻译：** {abstract_en}")
-
-        st.subheader("🗂️ 关键词 / Keywords")
-        if keywords:
-            for i, kw in enumerate(keywords):
-                st.markdown(f"- {kw} / {keywords_en[i]}")
-        else:
-            st.warning("未识别到关键词")
-
-        st.subheader("🔍 学科方向分析")
-        subjects = analyze_paper_subject(raw_text)
-        for subject, score in subjects:
-            st.write(f"- **{subject}** （匹配度：{score*100:.1f}%）")
-
-    except Exception as e:
-        st.error(f"❌ 解析过程中出错：{e}")
+            if st.session_state.conference_df is not None:
+                st.subheader("📎 推荐匹配的会议")
+                result_df = match_conference(combined_text, st.session_state.conference_df.copy())
+                for idx, row in result_df.iterrows():
+                    st.markdown(f"### 🔹 {row['会议名']}")
+                    st.markdown(f"- 匹配分数：{round(row['匹配分数'], 4)}")
+                    st.markdown(f"- 官网链接：[{row['官网链接']}]({row['官网链接']})")
+                    st.markdown("---")
+            else:
+                st.warning("⚠️ 请先上传会议Excel文件")
