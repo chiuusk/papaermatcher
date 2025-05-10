@@ -54,17 +54,13 @@ def extract_title(text):
     title_candidates = []
     for i, line in enumerate(lines):
         cleaned_line = line.strip()
-        if 15 < len(cleaned_line) < 250:  # 更严格的长度限制
-            # 检查是否全部大写或首字母大写比例高
+        if 15 < len(cleaned_line) < 250:
             upper_ratio = sum(1 for c in cleaned_line if c.isupper()) / len(cleaned_line)
             if upper_ratio > 0.6 or (cleaned_line and cleaned_line[0].isupper() and not cleaned_line[0].isdigit() and upper_ratio > 0.3):
                 title_candidates.append((i, cleaned_line))
-            # 查找可能包含标题的常见短语后的行
             elif i > 0 and re.search(r"(title|论文题目)[:：]", lines[i-1], re.IGNORECASE) and cleaned_line:
                 title_candidates.append((i, cleaned_line))
-
     if title_candidates:
-        # 返回第一个看起来最像标题且位置靠前的
         return min(title_candidates, key=lambda x: x[0])[1]
     elif lines:
         return lines[0].strip()
@@ -82,12 +78,11 @@ def extract_keywords(text):
         match = re.search(pattern, text)
         if match:
             keyword_str = match.group(2).strip()
-            # 按照逗号、分号或换行符分割关键词
             split_keywords = re.split(r'[;,，\n]\s*', keyword_str)
             keywords.update(split_keywords)
-    return ", ".join(filter(None, keywords)) # 过滤空字符串并用逗号连接
+    return ", ".join(filter(None, keywords))
 
-# 学科方向分析（基于更全面的关键词）
+# 学科方向分析（基于关键词匹配）
 def analyze_paper_subject(text):
     text = text.lower()
     subject_keywords = {
@@ -135,7 +130,7 @@ def analyze_paper_subject(text):
     subject_scores = Counter()
     for subject, keywords in subject_keywords.items():
         for keyword in keywords:
-            subject_scores[subject] += text.lower().count(keyword.lower()) # 忽略大小写匹配
+            subject_scores[subject] += text.lower().count(keyword.lower())
 
     total_score = sum(subject_scores.values())
     if total_score > 0:
@@ -147,6 +142,32 @@ def analyze_paper_subject(text):
 # 计算剩余天数
 def calculate_days_left(cutoff_date):
     return (cutoff_date - datetime.datetime.now().date()).days
+
+# 会议匹配函数
+def match_conferences(paper_subjects, conference_data):
+    matches = []
+    for _, row in conference_data.iterrows():
+        conf_subjects = row.get('会议主题方向', '')
+        conf_keywords = row.get('细分关键词', '')
+        if not conf_subjects and not conf_keywords:
+            continue
+
+        conf_subjects_list = [s.strip().lower() for s in conf_subjects.split(',')] if conf_subjects else []
+        conf_keywords_list = [k.strip().lower() for k in conf_keywords.split(',')] if conf_keywords else []
+        
+        match_score = 0
+        for paper_subject, weight in paper_subjects.items():
+            paper_subject_lower = paper_subject.lower()
+            if any(conf_sub in paper_subject_lower for conf_sub in conf_subjects_list):
+                match_score += weight
+            if any(conf_kw in paper_subject_lower for conf_kw in conf_keywords_list):
+                match_score += weight
+        
+        if match_score > 0:
+            matches.append((match_score, row))
+
+    matches.sort(reverse=True, key=lambda x: x[0])
+    return matches
 
 # 主函数
 def main():
@@ -175,4 +196,42 @@ def main():
         title = extract_title(file_text)
         keywords = extract_keywords(file_text)
         # 翻译结果
-        title_zh = translate_text
+        title_zh = translate_text(title)
+        keywords_zh = translate_text(keywords)
+        st.subheader("论文题目")
+        st.write(f"**中文：** {title_zh}")
+        st.write(f"**英文：** {title}")
+        st.subheader("关键词")
+        st.write(f"**中文：** {keywords_zh}")
+        st.write(f"**英文：** {keywords}")
+        # 学科分析
+        st.subheader("学科方向分析")
+        subjects = analyze_paper_subject(file_text)
+        for subject, percent in subjects.items():
+            st.write(f"- {subject}: {percent:.2f}%")
+
+        # 如果会议文件也上传了，进行匹配
+        if conference_file:
+            try:
+                conf_data = pd.read_excel(conference_file)
+                st.markdown("## 🎯 匹配推荐的会议")
+                matches = match_conferences(subjects, conf_data) # 使用新的匹配函数
+                if matches:
+                    for score, row in matches[:5]:
+                        st.write(f"### ✅ 推荐会议: {row['会议系列名']} - {row['会议名']}")
+                        st.write(f"- 会议方向: {row['会议主题方向']}")
+                        st.write(f"- 匹配得分: {score:.2f}%")
+                        st.write(f"- 官网链接: [{row['官网链接']}]({row['官网链接']})")
+                        if '截稿时间' in row and not pd.isna(row['截稿时间']):
+                            cutoff = row['截稿时间']
+                            if isinstance(cutoff, pd.Timestamp):
+                                days_left = calculate_days_left(cutoff.date())
+                                st.write(f"- 截稿时间: {cutoff.date()}（还有 {days_left} 天）")
+                        st.markdown("---")
+                else:
+                    st.info("未匹配到适合的会议，请根据学科方向自行查找。")
+            except Exception as e:
+                st.error(f"会议文件解析失败：{e}")
+
+if __name__ == "__main__":
+    main()
