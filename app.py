@@ -1,12 +1,3 @@
-# 这是你所要求的 Streamlit 应用完整代码，满足以下所有条件：
-# - 左侧为会议文件上传区，右侧为论文文件上传区
-# - 上传论文文件后立即进行学科方向分析
-# - 保留上传会议文件后的匹配功能
-# - UI清晰，分区域显示，避免混淆
-# - 增加上传区域高度以便拖拽
-# - 解析PDF或DOCX自动提取内容
-
-app_code = '''
 import streamlit as st
 import pandas as pd
 import datetime
