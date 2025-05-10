@@ -3,9 +3,9 @@ import pandas as pd
 import datetime
 import io
 import time
-import docx
-import fitz
 from googletrans import Translator  # 引入翻译库
+import fitz  # 用于解析pdf文件
+import docx  # 用于解析docx文件
 import re
 
 # 计算剩余天数
@@ -21,74 +21,77 @@ def upload_paper_file():
     uploaded_file = st.file_uploader("上传论文文件", type=["pdf", "docx"])
     return uploaded_file
 
-# 提取论文标题
-def extract_title(text):
-    title_pattern = r"Title?:\s*(.*?)(?:\n|$)"
-    match = re.search(title_pattern, text, re.IGNORECASE)
-    if match:
-        return match.group(1)
-    return None
+# 论文内容提取
+def extract_text_from_pdf(pdf_file):
+    # 提取PDF文本
+    doc = fitz.open(io.BytesIO(pdf_file.read()))
+    text = ""
+    for page in doc:
+        text += page.get_text("text")
+    return text
 
-# 提取关键词
-def extract_keywords(text):
-    keywords = []
-    keyword_pattern = r"Keywords?:\s*(.*?)(?:\n|$)"
+def extract_text_from_docx(docx_file):
+    # 提取Word文本
+    doc = docx.Document(io.BytesIO(docx_file.read()))
+    text = ""
+    for para in doc.paragraphs:
+        text += para.text + "\n"
+    return text
+
+def extract_paper_content(paper_file):
+    if paper_file is not None:
+        if paper_file.type == "application/pdf":
+            return extract_text_from_pdf(paper_file)
+        elif paper_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            return extract_text_from_docx(paper_file)
+    return ""
+
+# 提取论文标题和关键词
+def extract_title_and_keywords(text):
+    # 假设标题是文档中的第一行，关键词根据正则匹配
+    title = text.split("\n")[0]  # 假设标题在文档第一行
+    keyword_pattern = r"(?:Keywords|关键词):\s*(.*)"  # 匹配关键词
     match = re.search(keyword_pattern, text, re.IGNORECASE)
-    if match:
-        keywords = match.group(1).split(",")  # 关键词之间以逗号分隔
-        keywords = [kw.strip() for kw in keywords]
-    return keywords
+    keywords = match.group(1) if match else "无关键词"
+    return title, keywords
 
-# 论文学科方向分析
-def analyze_paper_subject(paper_file):
-    paper_text = extract_text_from_paper(paper_file)
-
-    # 提取标题和关键词
-    title = extract_title(paper_text)
-    keywords = extract_keywords(paper_text)
-
-    # 翻译标题和关键词
+# 翻译函数
+def translate_text(text):
     translator = Translator()
-    translated_title = translator.translate(title, src='zh-cn', dest='en').text
-    translated_keywords = [translator.translate(kw, src='zh-cn', dest='en').text for kw in keywords]
+    translation = translator.translate(text, src='zh-cn', dest='en')
+    return translation.text
 
-    # 显示中英文对照的题目和关键词
-    st.write("论文标题：")
-    st.write(f"中文: {title}")
-    st.write(f"英文: {translated_title}")
-
-    st.write("论文关键词：")
-    for kw, translated_kw in zip(keywords, translated_keywords):
-        st.write(f"中文: {kw} \t 英文: {translated_kw}")
+# 论文文件学科分析
+def analyze_paper_subject(paper_file):
+    # 提取论文文本
+    text = extract_paper_content(paper_file)
     
-    # 模拟学科分析结果
+    # 提取标题和关键词
+    title, keywords = extract_title_and_keywords(text)
+    
+    # 翻译标题和关键词
+    title_en = translate_text(title)
+    keywords_en = translate_text(keywords)
+    
+    # 模拟学科分析, 实际可使用NLP模型或规则
     subjects = {
         "电力系统": 40,
         "控制理论": 35,
         "计算机科学": 25
     }
-
+    
     st.write("论文学科方向分析：")
     st.write(f"该论文涉及的学科及其比例：")
     for subject, percent in subjects.items():
         st.write(f"{subject}: {percent}%")
     
-    return subjects
-
-# 提取论文内容
-def extract_text_from_paper(file):
-    file_extension = file.name.split('.')[-1].lower()
-    text = ""
+    st.write("论文标题及关键词（中英文对照）：")
+    st.write(f"标题（中文）：{title}")
+    st.write(f"Title (English): {title_en}")
+    st.write(f"关键词（中文）：{keywords}")
+    st.write(f"Keywords (English): {keywords_en}")
     
-    if file_extension == "pdf":
-        doc = fitz.open(file)
-        for page in doc:
-            text += page.get_text()
-    elif file_extension == "docx":
-        doc = docx.Document(file)
-        for para in doc.paragraphs:
-            text += para.text
-    return text
+    return subjects
 
 # 匹配函数
 def perform_matching(conference_file, paper_file):
