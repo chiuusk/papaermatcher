@@ -8,3 +8,5 @@ torch
 PyPDF2
 python-docx
 PyMuPDF
+pymupdf
+requests
