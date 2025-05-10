@@ -3,11 +3,11 @@ import pandas as pd
 import docx
 import fitz  # PyMuPDF
 import io
+import re
 
 # 解析PDF文件内容
 def extract_text_from_pdf(file):
     try:
-        # 将文件加载到内存中
         doc = fitz.open(stream=file.read(), filetype="pdf")
         text = ''
         for page in doc:
@@ -56,7 +56,7 @@ def extract_conference_content(conference_file):
     else:
         return None
 
-# 分析论文的学科方向
+# 分析论文的学科方向，并按比重排名
 def analyze_paper_subject(title, abstract, keywords):
     # 定义学科方向与相关关键词
     subjects = {
@@ -67,14 +67,26 @@ def analyze_paper_subject(title, abstract, keywords):
         '医学': ['medical', 'health', 'medicine', 'biomedical', 'clinical trials']
     }
 
-    # 使用论文的标题、摘要和关键词，结合定义的学科关键词，分析学科方向
+    # 合并标题、摘要和关键词
     combined_text = (title + ' ' + abstract + ' ' + keywords).lower()
     
-    # 判断标题、摘要和关键词中是否含有学科相关的关键词
+    # 初始化学科方向比重
+    subject_scores = {subject: 0 for subject in subjects}
+
+    # 判断每个学科方向的关键词出现频率，增加比重
     for subject, key_terms in subjects.items():
-        if any(keyword.lower() in combined_text for keyword in key_terms):
-            return subject
-    return "未能识别明确的学科方向"
+        for keyword in key_terms:
+            if keyword.lower() in combined_text:
+                subject_scores[subject] += 1
+    
+    # 按照比重排序，返回比重前3的学科方向
+    sorted_subjects = sorted(subject_scores.items(), key=lambda x: x[1], reverse=True)
+    
+    # 计算比重
+    total_score = sum([score for _, score in sorted_subjects])
+    subject_weights = {subject: (score / total_score) * 100 if total_score > 0 else 0 for subject, score in sorted_subjects}
+    
+    return subject_weights
 
 # 文章匹配会议
 def perform_matching(paper_content, conference_data):
@@ -103,14 +115,17 @@ def main():
             title = "示例标题"
             abstract = paper_content[:500]  # 截取论文内容的前500字符作为摘要示例
             keywords = "计算机科学, 人工智能, 数据科学"
-            subject = analyze_paper_subject(title, abstract, keywords)
-            st.write(f"匹配学科方向: {subject}")
+            subject_weights = analyze_paper_subject(title, abstract, keywords)
+            st.write("论文学科方向分析（按比重排序）：")
+            for subject, weight in subject_weights.items():
+                st.write(f"{subject}: {weight:.2f}%")
 
     if conference_file is not None:
         conference_data = extract_conference_content(conference_file)
         if conference_data is not None and paper_file is not None:
-            matches = perform_matching(paper_content, conference_data)
             st.subheader("推荐匹配会议")
+            # 根据学科方向匹配会议
+            matches = perform_matching(paper_content, conference_data)
             if matches:
                 for match in matches:
                     st.write(match)
@@ -120,3 +135,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
