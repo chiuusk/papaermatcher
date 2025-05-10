@@ -6,10 +6,8 @@ python-docx
 openpyxl
 torch
 PyPDF2
-python-docx
 PyMuPDF
-pymupdf
 requests
 deep-translator
-fitz
 docx
+fitz
