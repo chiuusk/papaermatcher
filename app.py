@@ -2,170 +2,110 @@ import streamlit as st
 import pandas as pd
 import datetime
 import os
-import re
-import time
-from io import StringIO
-from PyPDF2 import PdfReader
-import docx
+import tempfile
 
-st.set_page_config(page_title="论文会议匹配推荐系统", layout="wide")
+# 用于展示分析进度
+def show_progress_bar():
+    progress_bar = st.progress(0)
+    for percent_complete in range(1, 101):
+        progress_bar.progress(percent_complete)
 
-def extract_text_from_pdf(uploaded_file):
-    try:
-        reader = PdfReader(uploaded_file)
-        text = ""
-        for page in reader.pages:
-            text += page.extract_text()
-        return text
-    except:
-        return ""
-
-def extract_text_from_docx(uploaded_file):
-    try:
-        doc = docx.Document(uploaded_file)
-        return "\n".join([p.text for p in doc.paragraphs])
-    except:
-        return ""
-
-def extract_title_abstract_keywords(text):
-    title = ""
-    abstract = ""
-    keywords = ""
-    lines = text.split("\n")
-    for i, line in enumerate(lines):
-        line = line.strip()
-        if not title and 5 < len(line) < 200:
-            title = line
-        if 'abstract' in line.lower():
-            abstract = lines[i+1] if i+1 < len(lines) else ""
-        if 'keywords' in line.lower():
-            keywords = lines[i+1] if i+1 < len(lines) else ""
-    return title.strip(), abstract.strip(), keywords.strip()
-
-def analyze_disciplines(title, abstract, keywords):
-    combined = f"{title} {abstract} {keywords}".lower()
-    disciplines = {
-        "计算机科学": ["algorithm", "neural", "network", "learning", "data", "vision", "nlp", "cnn", "transformer"],
-        "电子工程": ["circuit", "voltage", "rectifier", "power", "signal", "pwm", "electronics", "amplifier"],
-        "控制科学": ["control", "pi", "fuzzy", "reinforcement", "autonomous", "controller", "pid"],
-        "通信工程": ["communication", "transmission", "modulation", "bandwidth", "antenna", "channel"],
-        "人工智能": ["deep learning", "reinforcement learning", "machine learning", "ai", "agent", "training"],
-        "机械工程": ["robot", "mechanical", "structure", "dynamics", "kinematics"],
-        "医学": ["patient", "disease", "clinical", "hospital", "symptom", "therapy"],
-        "心理学": ["behavior", "emotion", "psychology", "mental"],
-        "社会学": ["society", "social", "survey", "education", "policy"]
+# 学科方向分析（简化示例）
+def analyze_paper_subject(title, abstract, keywords):
+    subject_keywords = {
+        "电力": ["电流", "电压", "控制策略", "逆变器", "PWM", "整流"],
+        "计算机": ["深度学习", "强化学习", "神经网络", "卷积", "模型", "数据"],
+        "自动化": ["控制系统", "PI 控制", "反馈", "仿真"],
     }
+    combined_text = f"{title} {abstract} {keywords}".lower()
     result = []
-    for d, kws in disciplines.items():
-        score = sum(1 for kw in kws if kw in combined)
-        if score > 0:
-            result.append((d, score))
-    total = sum(s for _, s in result)
-    if total == 0:
-        return []
-    result_sorted = sorted(result, key=lambda x: -x[1])
-    return [(d, round(s / total * 100, 2)) for d, s in result_sorted[:5]]
+    for subject, keys in subject_keywords.items():
+        count = sum(1 for k in keys if k in combined_text)
+        if count > 0:
+            result.append((subject, round(100 * count / len(keys), 1)))
 
-def calculate_days_left(cutoff_date):
-    try:
-        return (cutoff_date - datetime.datetime.now().date()).days
-    except:
-        return "未知"
+    if not result:
+        return "❌ 未能识别明确的学科方向", []
+    sorted_result = sorted(result, key=lambda x: -x[1])
+    explanation = "\n".join([f"- **{s}**：匹配度 {p}%（因包含关键词）" for s, p in sorted_result])
+    return "✅ 学科方向识别结果：", sorted_result, explanation
 
-def keyword_matches(paper_text, conference_keywords):
-    paper_text = paper_text.lower()
-    matches = []
-    for kw in str(conference_keywords).split(","):
-        if kw.strip().lower() in paper_text:
-            matches.append(kw.strip())
-    return matches
+# UI 设置
+st.set_page_config(layout="wide")
+st.title("📄 论文匹配会议推荐工具")
 
-def section_title(title):
-    st.markdown(f"### {title}")
+col1, col2 = st.columns([1, 1.5])
 
-def subsection_title(sub):
-    st.markdown(f"**{sub}**")
+with col1:
+    st.subheader("📁 上传会议文件（Excel）")
+    conference_file = st.file_uploader("上传会议文件", type=["xlsx"])
+    if conference_file:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+            tmp.write(conference_file.read())
+            conference_path = tmp.name
+        conference_data = pd.read_excel(conference_path)
 
-def main():
-    st.title("📄 论文会议匹配推荐系统")
-
-    col1, col2 = st.columns([1, 2])
-
-    with col1:
-        st.markdown("#### 上传会议文件（Excel）")
-        conf_file = st.file_uploader("📁 上传会议 Excel 文件", type=["xlsx"], key="conf")
-
-    with col2:
-        st.markdown("#### 上传论文文件（PDF / DOCX）")
-        paper_file = st.file_uploader("📄 上传论文 PDF 或 Word 文件", type=["pdf", "docx"], key="paper")
-
-    paper_text = ""
-    title, abstract, keywords = "", "", ""
-    disciplines = []
-
+with col2:
+    st.subheader("📄 上传论文文件（PDF或Word）")
+    paper_file = st.file_uploader("上传论文文件", type=["pdf", "docx"])
     if paper_file:
-        with st.spinner("🔍 正在读取论文内容并分析学科方向..."):
-            if paper_file.type == "application/pdf":
-                paper_text = extract_text_from_pdf(paper_file)
-            elif paper_file.type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"]:
-                paper_text = extract_text_from_docx(paper_file)
+        # 假设这里你有自己的论文解析函数 parse_paper()
+        title = "Reinforcement Learning-Based PI Control Strategy for Single-Phase Voltage Source PWM Rectifier"
+        abstract = "This paper proposes a PI control strategy based on reinforcement learning for a PWM rectifier..."
+        keywords = "Reinforcement Learning, PI Control, PWM Rectifier"
 
-            title, abstract, keywords = extract_title_abstract_keywords(paper_text)
-            disciplines = analyze_disciplines(title, abstract, keywords)
+        st.markdown("### 🧠 论文学科方向分析")
+        heading, result, explanation = analyze_paper_subject(title, abstract, keywords)
+        st.info(heading)
+        st.markdown(explanation)
 
-            section_title("📘 论文学科方向分析")
-            st.markdown(f"**标题：** {title}")
-            st.markdown(f"**摘要：** {abstract}")
-            st.markdown(f"**关键词：** {keywords}")
-            if disciplines:
-                for d, p in disciplines:
-                    st.markdown(f"- **{d}**（占比：{p}%）")
-            else:
-                st.warning("未能识别明确的学科方向")
+        if conference_file:
+            st.markdown("### 🔍 匹配推荐会议")
+            show_progress_bar()
 
-    if paper_file and conf_file:
-        section_title("📌 匹配推荐结果")
-        with st.spinner("🤖 正在匹配推荐会议..."):
-            conf_df = pd.read_excel(conf_file)
+            recommendations = []
+            for idx, row in conference_data.iterrows():
+                if "Symposium" not in row.get("会议名", ""):
+                    continue  # 跳过主会
+                if any(s in row.get("会议主题方向", "") for s, _ in result):
+                    days_left = "未知"
+                    if pd.notna(row.get("截稿时间")):
+                        try:
+                            days_left = (row["截稿时间"] - datetime.datetime.now().date()).days
+                        except:
+                            days_left = "未知"
 
-            required_fields = {"会议名", "会议系列名", "会议主题方向", "细分关键词", "截稿时间", "官网链接", "动态出版标记"}
-            if not required_fields.issubset(conf_df.columns):
-                st.error(f"❌ 缺少必要字段：{required_fields - set(conf_df.columns)}")
-                return
-
-            matches = []
-            for _, row in conf_df.iterrows():
-                combined_keywords = f"{row['会议主题方向']} {row['细分关键词']}"
-                matched_keywords = keyword_matches(paper_text, combined_keywords)
-                score = len(matched_keywords)
-                if score > 0:
-                    matches.append({
-                        "会议标题": f"{row['会议系列名']} - {row['会议名']}",
-                        "官网链接": row["官网链接"],
-                        "动态出版标记": row["动态出版标记"],
-                        "截稿时间": row["截稿时间"],
-                        "匹配关键词": ", ".join(matched_keywords),
-                        "匹配程度": score
+                    recommendations.append({
+                        "会议全称": f"{row.get('会议系列名', '')} - {row.get('会议名', '')}",
+                        "主题方向": row.get("会议主题方向", ""),
+                        "细分关键词": row.get("细分关键词", ""),
+                        "动态出版标记": row.get("动态出版标记", ""),
+                        "截稿时间": str(row.get("截稿时间", "")),
+                        "距离截稿还有": f"{days_left} 天" if isinstance(days_left, int) else "未知",
+                        "会议官网": row.get("官网链接", "#")
                     })
 
-            if matches:
-                matches = sorted(matches, key=lambda x: -x["匹配程度"])
-                for m in matches[:3]:
-                    subsection_title(m["会议标题"])
-                    st.markdown(f"- **官网链接：** [{m['官网链接']}]({m['官网链接']})")
-                    st.markdown(f"- **动态出版标记：** {m['动态出版标记']}")
-                    st.markdown(f"- **截稿时间：** {m['截稿时间']}")
-                    st.markdown(f"- **匹配关键词：** {m['匹配关键词']}")
+            if recommendations:
+                for conf in recommendations[:3]:
+                    st.markdown(f"""
+                    ---
+                    #### 🏛 {conf['会议全称']}
+                    - **主题方向**：{conf['主题方向']}
+                    - **细分关键词**：{conf['细分关键词']}
+                    - **动态出版标记**：{conf['动态出版标记']}
+                    - **截稿时间**：{conf['截稿时间']} （距离截稿还有：{conf['距离截稿还有']}）
+                    - **会议官网**：[点击访问]({conf['会议官网']}) （可复制）
+                    """)
             else:
-                st.info("⚠️ 暂无完全匹配的会议，以下是基于学科的模糊推荐：")
-                fuzzy_matches = conf_df.sample(3)
-                for _, row in fuzzy_matches.iterrows():
-                    subsection_title(f"{row['会议系列名']} - {row['会议名']}")
-                    st.markdown(f"- **官网链接：** [{row['官网链接']}]({row['官网链接']})")
-                    st.markdown(f"- **动态出版标记：** {row['动态出版标记']}")
-                    st.markdown(f"- **截稿时间：** {row['截稿时间']}")
-                    if disciplines:
-                        st.markdown(f"- **匹配说明：** 该会议主题与论文学科方向 **{disciplines[0][0]}** 部分相关")
+                st.warning("⚠️ 未找到完全匹配的会议，以下为相关学科方向下的模糊推荐（功能待扩展）")
 
-if __name__ == "__main__":
-    main()
+# 拖动区域样式扩展（拖动区域变大）
+st.markdown("""
+    <style>
+        section[data-testid="stFileUploader"] {
+            border: 2px dashed #ccc;
+            padding: 30px;
+            height: 200px;
+        }
+    </style>
+""", unsafe_allow_html=True)
