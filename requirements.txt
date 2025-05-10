@@ -11,3 +11,5 @@ PyMuPDF
 pymupdf
 requests
 deep-translator
+fitz
+docx
