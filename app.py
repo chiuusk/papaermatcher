@@ -1,279 +1,169 @@
 import streamlit as st
 import pandas as pd
+import datetime
+import io
+import time
 import re
 from docx import Document
-import fitz  # PyMuPDF
-from googletrans import Translator
+import fitz  # PyMuPDF，用于PDF解析
+import requests
 
-# Initialize translator
-translator = Translator()
+# 使用第三方API翻译（无需安装库）
+def translate_text(text, target_lang="zh"):
+    try:
+        url = "https://translate.googleapis.com/translate_a/single"
+        params = {
+            "client": "gtx",
+            "sl": "en",
+            "tl": target_lang,
+            "dt": "t",
+            "q": text
+        }
+        response = requests.get(url, params=params)
+        result = response.json()
+        return "".join([item[0] for item in result[0]])
+    except:
+        return "(翻译失败)"
 
+# 提取 PDF 文本
 def extract_text_from_pdf(file):
     try:
         doc = fitz.open(stream=file.read(), filetype="pdf")
-        
-        # Try to get title from table of contents first
-        toc_title = ""
-        if doc.get_toc():
-            toc_title = doc.get_toc()[0][1]
-        
-        title_candidates = {}
-        
         text = ""
         for page in doc:
-            blocks = page.get_text("dict")["blocks"]
-            for block in blocks:
-                if block["type"] == 0:  # Only process text blocks
-                    for line in block["lines"]:
-                        current_text = "".join([span["text"] for span in line["spans"]])
-                        font_size = line["spans"][0]["size"] if line["spans"] else 12
-
-                        if font_size > 20 and len(current_text.strip()) > 8:
-                            title_candidates[current_text.strip()] = font_size
-
-                        text += current_text + "\n"
-        
-        if title_candidates:
-            sorted_titles = sorted(title_candidates.items(), key=lambda x: x[1], reverse=True)            
-            toc_title = sorted_titles[0][0]
-
-        return toc_title, text.strip()
-    
+            text += page.get_text()
+        return text
     except Exception as e:
-        st.error(f"PDF parsing failed: {str(e)}")
-        return "", "" 
+        st.error(f"PDF解析失败: {e}")
+        return ""
 
+# 提取 Word 文本
 def extract_text_from_word(file):
     try:
-        doc = Document(file)
-        
-        title_candidate = ""
-        
-		# Check each paragraph style to find the title paragraph	
-		for para in doc.paragraphs:
-			if para.style.name.lower() == 'title':
-				title_candidate += para.text + "\n"
-		
-		full_text_list=[]
-		for para in doc.paragraphs:
-			full_text_list.append(para.text)
+        document = Document(file)
+        text = "\n".join([para.text for para in document.paragraphs])
+        return text
+    except Exception as e:
+        st.error(f"Word解析失败: {e}")
+        return ""
 
-		full_text="\n".join(full_text_list)
+# 提取论文题目（更智能的识别）
+def extract_title(text):
+    lines = text.split('\n')
+    title_candidates = []
+    for line in lines:
+        cleaned_line = line.strip()
+        if 10 < len(cleaned_line) < 200:  # 长度限制，排除作者等短句
+            # 进一步判断是否像标题，例如首字母大写较多
+            if sum(1 for c in cleaned_line if c.isupper()) / len(cleaned_line) > 0.5:
+                title_candidates.append(cleaned_line)
+            elif cleaned_line and cleaned_line[0].isupper() and not cleaned_line[0].isdigit():
+                title_candidates.append(cleaned_line)
 
-		return title_candidate.strip(), full_text
-	
-	except Exception as e:
-		st.error(f"Word parsing failed:{str(e)}")
-		return "", "" 
+    if title_candidates:
+        # 返回第一个看起来最像标题的
+        return title_candidates[0]
+    elif lines:
+        return lines[0].strip()
+    else:
+        return "无法识别题目"
 
-def is_metadata(line):
-	patterns=[
-		r'^\s*\S+@\S+\.\S+\s*$',
-		r'^(\w\.\s+)*\w+(\s+et al\.)?$',
-		r'^.*univ\w*,\s*\w+.*$'
-	]
-	return any(re.search(p,line,re.I)for p in patterns)
+# 提取关键词（更全面的识别）
+def extract_keywords(text):
+    patterns = [
+        r"(?i)(Keywords|Index Terms)[:：]?\s*(.*)",
+        r"(?i)关键词[:：]\s*(.*)"  # 增加中文关键词的匹配
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return match.group(2).strip()
+    return "无法识别关键词"
 
-def extract_title(text,filename=""):
-	"""Three-level strategy to detect paper title"""
-	
-	# Rule1:Built-in title info(highest priority)
-	if hasattr(text,'title')and text.title.strip():
-		return text.title
-	
-	text=str(text)
+# 模拟学科分析（你可以换成模型）
+def analyze_paper_subject(text):
+    subjects = {
+        "电力系统": 40,
+        "控制理论": 35,
+        "计算机科学": 25
+    }
+    return subjects
 
-	# Rule2:Lines before abstract section	
-	abstract_positions=[m.start()for m in re.finditer(r'(?i)(\babstract\b|摘要)',text)]
-	
-	if abstract_positions and abstract_positions[0]>10:#Ensure there's content before abstract		
-		pre_abstract=text[:abstract_positions[0]].strip()
-		
-		candidates=[line.strip()for line in pre_abstract.split('\n')
-					if len(line.strip())>10 and not is_metadata(line)]
-		
-		if candidates:#Return the last non-empty candidate before abstract			
-			return candidates[-1]
+# 计算剩余天数
+def calculate_days_left(cutoff_date):
+    return (cutoff_date - datetime.datetime.now().date()).days
 
-	# Rule3:Heuristic rules	
-	lines=[line.strip()for line in text.split('\n')if len(line.strip())>5]
-	
-	for i,line in enumerate(lines):		
-		if i>20:#Only check first20 lines to improve performance			
-			break		
-			
-		if(len(line)>15 and not any(kw.lower()in line.lower()
-			for kw in['author','university','@','doi','http'])
-			and sum(c.isupper()for c in line)/len(line)<0.4			
-			and not re.match(r'^\d{4}$|^pp\.|^vol\.|^no\.',line)):
-				return re.sub(r'\s+',' ',line).strip()
-
-	return filename.split('.')[0]+"(auto-detected)"
-
-def clean_keywords(raw_str):
-	"""Clean and format keyword strings"""
-	return';'.join(set(
-		kw.strip().capitalize()
-		for kw in re.split(r'[;,\•\-–—]|\band\b',raw_str.replace('\n',''))
-		if len(kw.strip())>2 and not kw.isdigit()
-	))
-
-def extract_keywords(text,max_keywords=8):
-	"""Multi-strategy keyword extraction"""
-	
-	if not isinstance(text,str):
-		return"(no keywords detected)"
-	
-	text=str(text).replace('\r','')
-	
-	# Strategy1:Explicit keyword sections	
-	for pattern in[
-		r'(?i)(keywords?\s*[:;\-—]\s*)(.*?)(?=\n[A-Z][a-z]{3,}|$)',
-		r'(?i)(index terms?\s*[:;\-—]\s*)(.*?)(?=\n[A-Z][a-z]{3,}|$)',
-		r'(关键[词字]\s*[:;\-—]\s*)(.*?)(?=\n[A-Za-z]{4,}|$)'
-	]:
-		match=re.search(pattern,text,re.DOTALL)
-		if match and len(match.group(2).strip())>3:
-			return clean_keywords(match.group(2))
-	
-	# Strategy2:Bullet-point lists near abstract	
-	match=re.search(r'(?:abstract|摘要).*?([•▪■‣⦿➢➣➤⦾]\s*.+?)(?:\n{2}|\Z)',text,re.I|re.DOTALL)
-	if match and len(match.group(1))>10:
-		return clean_keywords(match.group(1))
-	
-	return"(no keywords detected)"
-
+# 主函数
 def main():
-	st.set_page_config(layout="wide",page_title="Academic Paper Analyzer")
+    st.set_page_config(layout="wide")
+    st.title("论文与会议匹配系统")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.header("上传会议文件")
+        conference_file = st.file_uploader("上传会议 Excel 文件", type=["xlsx"], key="conf")
+    with col2:
+        st.header("上传论文文件")
+        paper_file = st.file_uploader("上传论文文件 (PDF 或 Word)", type=["pdf", "docx"], key="paper")
 
-	st.sidebar.title("Settings")
-	target_lang=st.sidebar.selectbox(
-		"Translation Target",
-		options=["zh","en","ja","fr"],
-		index=0,
-		help="Select target language for translations"
-	)
+    # 如果上传了论文文件，立即分析
+    if paper_file:
+        st.markdown("## 📄 论文内容解析结果")
+        file_text = ""
+        if paper_file.name.endswith(".pdf"):
+            file_text = extract_text_from_pdf(paper_file)
+        elif paper_file.name.endswith(".docx"):
+            file_text = extract_text_from_word(paper_file)
+        if not file_text.strip():
+            st.error("未能成功提取论文内容")
+            return
+        # 提取题目与关键词
+        title = extract_title(file_text)
+        keywords = extract_keywords(file_text)
+        # 翻译结果
+        title_zh = translate_text(title)
+        keywords_zh = translate_text(keywords)
+        st.subheader("论文题目")
+        st.write(f"**中文：** {title_zh}")
+        st.write(f"**英文：** {title}")
+        st.subheader("关键词")
+        st.write(f"**中文：** {keywords_zh}")
+        st.write(f"**英文：** {keywords}")
+        # 学科分析
+        st.subheader("学科方向分析")
+        subjects = analyze_paper_subject(file_text)
+        for subject, percent in subjects.items():
+            st.write(f"- {subject}: {percent}%")
+        # 如果会议文件也上传了，进行匹配
+        if conference_file:
+            try:
+                conf_data = pd.read_excel(conference_file)
+                st.markdown("## 🎯 匹配推荐的会议")
+                matches = []
+                for _, row in conf_data.iterrows():
+                    conf_subjects = row.get('会议主题方向', '')
+                    if not conf_subjects:
+                        continue
+                    conf_list = [x.strip() for x in conf_subjects.split(',')]
+                    score = sum([subjects.get(s, 0) for s in conf_list])
+                    if score > 0:
+                        matches.append((score, row))
+                matches.sort(reverse=True, key=lambda x: x[0])
+                if matches:
+                    for score, row in matches[:5]:
+                        st.write(f"### ✅ 推荐会议: {row['会议系列名']} - {row['会议名']}")
+                        st.write(f"- 会议方向: {row['会议主题方向']}")
+                        st.write(f"- 匹配得分: {score}")
+                        st.write(f"- 官网链接: [{row['官网链接']}]({row['官网链接']})")
+                        if '截稿时间' in row and not pd.isna(row['截稿时间']):
+                            cutoff = row['截稿时间']
+                            if isinstance(cutoff, pd.Timestamp):
+                                days_left = calculate_days_left(cutoff.date())
+                                st.write(f"- 截稿时间: {cutoff.date()}（还有 {days_left} 天）")
+                        st.markdown("---")
+                else:
+                    st.info("未匹配到适合的会议，请根据学科方向自行查找。")
+            except Exception as e:
+                st.error(f"会议文件解析失败：{e}")
 
-	st.title("📄 Academic Paper Analyzer")
-
-	uploaded_file=st.file_uploader(
-		"Upload your research paper(PDF/DOCX)",
-		type=["pdf","docx"],
-		help="Supports both PDF and Word documents"
-	)
-
-	if uploaded_file is not None:
-
-		st.subheader("Analysis Results")
-
-		try:
-
-			if uploaded_file.type=="application/pdf":
-				pdf_title,pdf_content=extract_text_from_pdf(uploaded_file)
-
-				st.success(f"Successfully parsed PDF:{uploaded_file.name}")
-				
-				final_title=extract_title(pdf_content or pdf_title,
-										filename=uploaded_file.name)
-
-				final_keywords=extract_keywords(pdf_content)
-
-			elif uploaded_file.type=="application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-				word_title,word_content=extract_text_from_word(uploaded_file)
-
-				st.success(f"Successfully parsed Word document:{uploaded_file.name}")
-
-				final_title=extract_title(word_content or word_title,
-										filename=uploaded_file.name)
-
-				final_keywords=extract_keywords(word_content)
-
-			else:
-
-				st.error("Unsupported file format")
-
-				return
-
-			try:
-
-				target_language={'zh':'Chinese','en':'English',
-							   'ja':'Japanese','fr':'French'}[target_lang]
-
-				st.markdown(f"""
-
-				### Title Analysis
-
-				- **Original Title**:`{final_title}`
-
-				- **{target_language} Translation**:`{translator.translate(final_title,dest=target_lang).text}`
-
-				### Keywords Analysis
-
-				- **Original Keywords**:`{final_keywords}`
-
-				- **{target_language} Translation**:`{translator.translate(final_keywords,dest=target_lang).text}`
-
-				""")
-
-			except Exception as e:
-
-				st.warning(f"Translation service error:{str(e)}")
-
-				st.markdown(f"""
-
-				### Title Analysis
-
-				`{final_title}`
-
-				### Keywords Analysis
-
-				`{final_keywords}`
-
-				""")
-
-			if uploaded_file.type=="application/pdf":
-
-				st.download_button(
-
-					label="Download Extracted Text",
-
-					data=(final_title+"\n\n"+final_keywords+"\n\n"+pdf_content[:50000]),
-
-					file_name=f"{uploaded_file.name}_extracted.txt",
-
-					mime="text/plain"
-
-				)
-
-			else:
-
-				st.download_button(
-
-					label="Download Extracted Text",
-
-					data=(final_title+"\n\n"+final_keywords+"\n\n"+word_content[:50000]),
-
-					file_name=f"{uploaded_file.name}_extracted.txt",
-
-					mime="text/plain"
-
-				)
-
-			st.success("Analysis completed successfully!")
-
-			st.balloons()
-
-		except Exception as e:
-
-			st.error(f"A critical error occurred:{str(e)}")
-
-if __name__=="__main__":
-	
-	try:
-
-		main()
-
-	except Exception as e:
-
-		st.error(f"Application crashed:{str(e)}")
-
+if __name__ == "__main__":
+    main()
