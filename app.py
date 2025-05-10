@@ -5,7 +5,7 @@ import io
 import time
 import re
 from docx import Document
-import fitz  # PyMuPDF，用于PDF解析
+import fitz
 import requests
 from collections import Counter
 
