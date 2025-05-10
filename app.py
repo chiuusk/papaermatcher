@@ -58,15 +58,21 @@ def extract_conference_content(conference_file):
 
 # 分析论文的学科方向
 def analyze_paper_subject(title, abstract, keywords):
-    # 简单的示例：通过标题、摘要和关键词分析学科
+    # 定义学科方向与相关关键词
     subjects = {
-        '计算机科学': ['machine learning', 'artificial intelligence', 'data science'],
-        '生物学': ['biological', 'genetic', 'biochemistry'],
-        '物理学': ['quantum', 'physics', 'thermodynamics'],
+        '计算机科学': ['machine learning', 'artificial intelligence', 'data science', 'algorithm', 'computer vision'],
+        '生物学': ['biological', 'genetic', 'biochemistry', 'cell biology', 'microbiology'],
+        '物理学': ['quantum', 'physics', 'thermodynamics', 'mechanics', 'astronomy'],
+        '化学': ['chemistry', 'organic chemistry', 'inorganic chemistry', 'chemical reactions', 'nanotechnology'],
+        '医学': ['medical', 'health', 'medicine', 'biomedical', 'clinical trials']
     }
+
+    # 使用论文的标题、摘要和关键词，结合定义的学科关键词，分析学科方向
+    combined_text = (title + ' ' + abstract + ' ' + keywords).lower()
     
+    # 判断标题、摘要和关键词中是否含有学科相关的关键词
     for subject, key_terms in subjects.items():
-        if any(keyword.lower() in (title + abstract + keywords).lower() for keyword in key_terms):
+        if any(keyword.lower() in combined_text for keyword in key_terms):
             return subject
     return "未能识别明确的学科方向"
 
@@ -93,8 +99,9 @@ def main():
         paper_content = extract_paper_content(paper_file)
         if paper_content:
             st.subheader("论文学科方向分析")
+            # 解析标题、摘要和关键词（这里可以替换成真实的提取逻辑）
             title = "示例标题"
-            abstract = "示例摘要内容，可能涉及计算机科学、人工智能等领域"
+            abstract = paper_content[:500]  # 截取论文内容的前500字符作为摘要示例
             keywords = "计算机科学, 人工智能, 数据科学"
             subject = analyze_paper_subject(title, abstract, keywords)
             st.write(f"匹配学科方向: {subject}")
