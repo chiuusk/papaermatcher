@@ -3,6 +3,7 @@ import pandas as pd
 import datetime
 import fitz  # PyMuPDF
 import docx
+import re
 
 # 读取 PDF 内容
 def extract_text_from_pdf(file):
@@ -30,7 +31,22 @@ def extract_paper_text(file):
         return extract_text_from_docx(file)
     return ""
 
-# 学科方向分析
+# 提取标题（假设标题位于文本开头）
+def extract_title(text):
+    title = text.split('\n')[0]  # 假设标题在文本的第一行
+    return title.strip()
+
+# 提取关键词（通过正则查找关键词）
+def extract_keywords(text):
+    keywords = []
+    keyword_pattern = r"(?<=Keywords?:\s)(.*?)(?=\n)"  # 找到关键词字段
+    match = re.search(keyword_pattern, text, re.IGNORECASE)
+    if match:
+        keywords = match.group(1).split(",")  # 关键词之间以逗号分隔
+        keywords = [kw.strip() for kw in keywords]
+    return keywords
+
+# 论文学科方向分析
 def analyze_subjects(text):
     subject_keywords = {
         "电力系统": ["power system", "voltage", "rectifier", "电网", "电力"],
@@ -98,6 +114,21 @@ def main():
             st.info("已上传论文文件，正在分析中...")
             text = extract_paper_text(paper_file)
             if text:
+                # 提取题目和关键词
+                title = extract_title(text)
+                keywords = extract_keywords(text)
+
+                # 显示论文题目和关键词
+                st.markdown("### 📄 论文题目与关键词")
+                st.write(f"**中文题目：** {title}")
+                st.write(f"**English Title:** {title}")  # 假设英文题目和中文题目一样，你可以根据实际情况调整
+
+                st.write(f"**关键词 (中文 / English Keywords):**")
+                for kw in keywords:
+                    st.write(f"- **中文:** {kw}")
+                    st.write(f"- **English:** {kw}")
+
+                # 学科方向分析
                 subjects = analyze_subjects(text)
                 if subjects:
                     st.markdown("### 📊 论文学科方向分析")
@@ -106,6 +137,7 @@ def main():
                 else:
                     st.warning("未识别到明确的学科方向")
 
+                # 会议匹配
                 if conference_data is not None:
                     st.markdown("### 📌 正在匹配会议...")
                     matches = match_conferences(conference_data, subjects)
