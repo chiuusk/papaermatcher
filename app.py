@@ -1,157 +1,125 @@
 import streamlit as st
 import pandas as pd
 import datetime
-import io
-import time
-import fitz  # PyMuPDF 用于解析 PDF
-from docx import Document  # 用于解析 Word 文档
-import re
+import fitz  # PyMuPDF
+import docx
 
-# 计算剩余天数
-def calculate_days_left(cutoff_date):
-    return (cutoff_date - datetime.datetime.now().date()).days
-
-# 文件上传处理函数
-def upload_conference_file():
-    uploaded_file = st.file_uploader("上传会议文件", type=["xlsx"])
-    return uploaded_file
-
-def upload_paper_file():
-    uploaded_file = st.file_uploader("上传论文文件", type=["pdf", "docx"])
-    return uploaded_file
-
-# 提取 PDF 文件内容
+# 读取 PDF 内容
 def extract_text_from_pdf(file):
-    doc = fitz.open(file)
-    text = ""
-    for page in doc:
-        text += page.get_text()
-    return text
+    try:
+        with fitz.open(stream=file.read(), filetype="pdf") as doc:
+            return "".join(page.get_text() for page in doc)
+    except Exception as e:
+        st.error(f"PDF 解析失败: {e}")
+        return ""
 
-# 提取 Word 文件内容
-def extract_text_from_word(file):
-    doc = Document(file)
-    text = ""
-    for para in doc.paragraphs:
-        text += para.text + "\n"
-    return text
+# 读取 Word 内容
+def extract_text_from_docx(file):
+    try:
+        doc = docx.Document(file)
+        return "\n".join([para.text for para in doc.paragraphs])
+    except Exception as e:
+        st.error(f"Word 解析失败: {e}")
+        return ""
 
-# 提取论文内容：标题、摘要、关键词
-def extract_paper_content(paper_file):
-    # 根据文件类型选择合适的提取方式
-    if paper_file.name.endswith(".pdf"):
-        paper_text = extract_text_from_pdf(paper_file)
-    elif paper_file.name.endswith(".docx"):
-        paper_text = extract_text_from_word(paper_file)
-    else:
-        st.error("不支持的文件格式")
-        return None
-    
-    # 简单的正则来提取摘要和关键词，实际可优化
-    title = paper_text.split("\n")[0]  # 假设标题在第一行
-    abstract_match = re.search(r"(?:Abstract|摘要)(.*?)(?:Keywords|关键词)", paper_text, re.S)
-    keywords_match = re.search(r"(?:Keywords|关键词):?(.*)", paper_text)
-    
-    abstract = abstract_match.group(1).strip() if abstract_match else "未找到摘要"
-    keywords = keywords_match.group(1).strip() if keywords_match else "未找到关键词"
-    
-    # 返回标题、摘要、关键词
-    return title, abstract, keywords
+# 综合提取论文内容
+def extract_paper_text(file):
+    if file.name.endswith(".pdf"):
+        return extract_text_from_pdf(file)
+    elif file.name.endswith(".docx"):
+        return extract_text_from_docx(file)
+    return ""
 
-# 论文文件学科分析
-def analyze_paper_subject(paper_file):
-    # 提取论文内容
-    title, abstract, keywords = extract_paper_content(paper_file)
-    
-    # 模拟学科分析, 实际可使用NLP模型或规则
-    paper_text = abstract + " " + keywords  # 简化处理
-    
-    # 假设的学科方向和比重
-    subjects = {
-        "电力系统": 40,
-        "控制理论": 35,
-        "计算机科学": 25
+# 学科方向分析
+def analyze_subjects(text):
+    subject_keywords = {
+        "电力系统": ["power system", "voltage", "rectifier", "电网", "电力"],
+        "控制理论": ["control", "PID", "控制器", "控制系统", "stability"],
+        "计算机科学": ["algorithm", "data", "neural", "人工智能", "machine learning"],
+        "通信工程": ["network", "5G", "通信", "信道", "wireless"],
+        "电子工程": ["信号", "电路", "modulation", "sensor", "嵌入式"]
     }
-    
-    # 返回分析结果
-    st.write("论文内容分析：")
-    st.write(f"**标题：** {title}")
-    st.write(f"**摘要：** {abstract}")
-    st.write(f"**关键词：** {keywords}")
-    
-    st.write("论文学科方向分析：")
-    st.write(f"该论文涉及的学科及其比例：")
-    for subject, percent in subjects.items():
-        st.write(f"{subject}: {percent}%")
-    
-    return subjects
 
-# 匹配函数
-def perform_matching(conference_file, paper_file):
-    if conference_file is not None:
-        try:
-            # 读取上传的会议文件
-            conference_data = pd.read_excel(conference_file)  # 直接从上传的文件中读取
-            st.write("会议文件加载成功")
-            
-            # 获取论文分析结果
-            paper_subjects = analyze_paper_subject(paper_file)
-            
-            matching_conferences = []
-            for index, row in conference_data.iterrows():
-                # 检查会议是否符合条件，假设示例的匹配条件
-                if 'Symposium' not in row['会议名']:
-                    # 获取匹配的会议方向
-                    conference_subjects = row['会议主题方向'].split(',')  # 假设会议的主题方向列是以逗号分隔
-                    matching_score = 0
-                    for subject in paper_subjects:
-                        if subject in conference_subjects:
-                            matching_score += paper_subjects[subject]
-                    
-                    if matching_score > 0:
-                        matching_conferences.append({
-                            "会议系列名与会议名": f"{row['会议系列名']} - {row['会议名']}",
-                            "官网链接": row['官网链接'],
-                            "动态出版标记": row['动态出版标记'],
-                            "截稿时间": row['截稿时间'],
-                            "剩余天数": calculate_days_left(row['截稿时间']),
-                            "论文研究方向匹配": f"与{row['会议主题方向']}匹配"
-                        })
-            
-            # 展示匹配的会议
-            if matching_conferences:
-                for conference in matching_conferences:
-                    st.write(f"**会议推荐：{conference['会议系列名与会议名']}**")
-                    st.write(f"官网链接: {conference['官网链接']}")
-                    st.write(f"动态出版标记: {conference['动态出版标记']}")
-                    st.write(f"截稿时间: {conference['截稿时间']} (距离截稿还有 {conference['剩余天数']} 天)")
-                    st.write(f"匹配分析: {conference['论文研究方向匹配']}")
-            else:
-                st.write("没有找到完全匹配的会议，根据您的论文方向，推荐以下学科：")
-                st.write("推荐学科: 电力系统工程, 控制理论, 计算机科学")
-                st.write("可以参考这些方向的其他会议。")
-        except Exception as e:
-            st.error(f"加载会议文件时出错: {e}")
-    else:
-        st.error("请上传有效的会议文件")
+    counts = {}
+    lower_text = text.lower()
+    for subject, keywords in subject_keywords.items():
+        count = sum(lower_text.count(kw.lower()) for kw in keywords)
+        if count > 0:
+            counts[subject] = count
 
-# 主函数
+    total = sum(counts.values())
+    if total == 0:
+        return {}
+
+    return {k: round(v / total * 100, 2) for k, v in sorted(counts.items(), key=lambda x: x[1], reverse=True)}
+
+# 匹配会议
+def match_conferences(conference_data, paper_subjects):
+    matches = []
+    for _, row in conference_data.iterrows():
+        conf_subjects = str(row.get("会议主题方向", "")).split(",")
+        matched = [s for s in paper_subjects if any(s in c for c in conf_subjects)]
+        score = sum(paper_subjects[s] for s in matched)
+        if score > 0:
+            matches.append({
+                "会议系列名与会议名": f"{row.get('会议系列名', '')} - {row.get('会议名', '')}",
+                "官网链接": row.get("官网链接", ""),
+                "动态出版标记": row.get("动态出版标记", ""),
+                "截稿时间": row.get("截稿时间", ""),
+                "剩余天数": (pd.to_datetime(row.get("截稿时间")).date() - datetime.date.today()).days,
+                "匹配学科": ", ".join(matched)
+            })
+    return matches
+
+# 主体
 def main():
-    st.title("论文与会议匹配系统")
-    
-    # 上传会议文件区
-    conference_file = upload_conference_file()
-    
-    # 上传论文文件区
-    paper_file = upload_paper_file()
-    
-    # 如果论文文件上传了，进行进一步的分析与匹配
-    if paper_file:
-        st.write("正在进行论文分析...")
-        time.sleep(1)  # 模拟分析时间
-        perform_matching(conference_file, paper_file)  # 传递上传的会议文件进行匹配
-    else:
-        st.write("请先上传论文文件进行匹配。")
+    st.set_page_config(layout="wide")
+    st.title("📄 论文与会议智能匹配系统")
+
+    col1, col2 = st.columns([1, 1])
+
+    # 左侧会议文件上传
+    with col1:
+        st.subheader("📁 上传会议文件")
+        conference_file = st.file_uploader("上传 Excel 格式的会议列表", type=["xlsx"], key="conf", label_visibility="collapsed")
+        conference_data = None
+        if conference_file:
+            try:
+                conference_data = pd.read_excel(conference_file)
+                st.success("会议文件加载成功")
+            except Exception as e:
+                st.error(f"读取会议文件失败: {e}")
+
+    # 右侧论文上传
+    with col2:
+        st.subheader("📄 上传论文文件")
+        paper_file = st.file_uploader("上传 PDF / Word 论文", type=["pdf", "docx"], key="paper", label_visibility="collapsed")
+        if paper_file:
+            st.info("已上传论文文件，正在分析中...")
+            text = extract_paper_text(paper_file)
+            if text:
+                subjects = analyze_subjects(text)
+                if subjects:
+                    st.markdown("### 📊 论文学科方向分析")
+                    for subject, percent in subjects.items():
+                        st.write(f"- {subject}: {percent}%")
+                else:
+                    st.warning("未识别到明确的学科方向")
+
+                if conference_data is not None:
+                    st.markdown("### 📌 正在匹配会议...")
+                    matches = match_conferences(conference_data, subjects)
+                    if matches:
+                        for m in matches:
+                            st.markdown(f"#### ✅ 推荐会议：{m['会议系列名与会议名']}")
+                            st.markdown(f"- 官网链接: [{m['官网链接']}]({m['官网链接']})")
+                            st.markdown(f"- 动态出版标记: {m['动态出版标记']}")
+                            st.markdown(f"- 截稿时间: {m['截稿时间']} (剩余 {m['剩余天数']} 天)")
+                            st.markdown(f"- 匹配学科方向: {m['匹配学科']}")
+                    else:
+                        st.info("未找到匹配会议。可根据分析结果尝试其他领域会议。")
+            else:
+                st.warning("论文内容无法读取，请检查文件格式。")
 
 if __name__ == "__main__":
     main()
