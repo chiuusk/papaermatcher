@@ -47,8 +47,10 @@ def extract_paper_content(paper_file):
         st.error("不支持的文件格式")
         return None
     
-    # 简单的正则来提取摘要和关键词，实际可优化
+    # 假设论文的标题在文件的第一行
     title = paper_text.split("\n")[0]  # 假设标题在第一行
+    
+    # 提取摘要和关键词，利用正则表达式和常见论文格式
     abstract_match = re.search(r"(?:Abstract|摘要)(.*?)(?:Keywords|关键词)", paper_text, re.S)
     keywords_match = re.search(r"(?:Keywords|关键词):?(.*)", paper_text)
     
@@ -76,8 +78,14 @@ def analyze_paper_subject(paper_file):
     # 返回分析结果
     st.write("论文内容分析：")
     st.write(f"**标题：** {title}")
-    st.write(f"**摘要：** {abstract}")
-    st.write(f"**关键词：** {keywords}")
+    
+    # 中文和英文摘要展示
+    st.write(f"**摘要：**\n{abstract}")
+    st.write(f"**Abstract：**\n{abstract}")
+    
+    # 中文和英文关键词展示
+    st.write(f"**关键词：**\n{keywords}")
+    st.write(f"**Keywords：**\n{keywords}")
     
     st.write("论文学科方向分析：")
     st.write(f"该论文涉及的学科及其比例：")
