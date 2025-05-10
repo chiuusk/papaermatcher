@@ -6,3 +6,4 @@ python-docx
 openpyxl
 torch
 PyPDF2
+python-docx
